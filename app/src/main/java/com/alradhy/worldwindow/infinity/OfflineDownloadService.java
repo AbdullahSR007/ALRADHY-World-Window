@@ -35,13 +35,13 @@ public final class OfflineDownloadService extends Service {
     }
     @Override public int onStartCommand(Intent intent,int flags,int startId){
         String action=intent!=null?intent.getAction():ALL;
-        if(PAUSE.equals(action)){paused=true;notice("Pausing safely…",0,0);return START_NOT_STICKY;}
-        if(!active.compareAndSet(false,true))return START_NOT_STICKY;
+        if(PAUSE.equals(action)){paused=true;notice("Pausing safely…",0,0);return START_REDELIVER_INTENT;}
+        if(!active.compareAndSet(false,true))return START_REDELIVER_INTENT;
         paused=false;finished=0;failures=0;
         startForeground(6401,notification("Preparing offline library…",0,0));
         final String requested=ONE.equals(action)&&intent!=null?intent.getStringExtra(EXTRA_ID):null;
         worker.execute(()->process(requested,startId));
-        return START_NOT_STICKY;
+        return START_REDELIVER_INTENT;
     }
     private void process(String requested,int startId){
         try{
@@ -85,7 +85,7 @@ public final class OfflineDownloadService extends Service {
         }finally{
             if(wake!=null&&wake.isHeld())wake.release();
             active.set(false);
-            stopForeground(STOP_FOREGROUND_DETACH);
+            stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf(startId);
         }
     }
