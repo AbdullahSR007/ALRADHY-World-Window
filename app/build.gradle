@@ -1,0 +1,44 @@
+plugins { id 'com.android.application' }
+
+def signingPath = System.getenv('INFINITY_KEYSTORE_PATH')
+def signingEnabled = signingPath != null && file(signingPath).isFile()
+
+android {
+    signingConfigs {
+        if (signingEnabled) {
+            infinity {
+                storeFile file(signingPath)
+                storePassword System.getenv('INFINITY_STORE_PASS')
+                keyAlias System.getenv('INFINITY_KEY_ALIAS') ?: 'infinity'
+                keyPassword System.getenv('INFINITY_KEY_PASS')
+                storeType 'PKCS12'
+            }
+        }
+    }
+    namespace 'com.alradhy.worldwindow.infinity'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'com.alradhy.worldwindow.infinity'
+        minSdk 26
+        targetSdk 34
+        versionCode 10001
+        versionName '1.0.0-alpha1'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (signingEnabled) signingConfig signingConfigs.infinity
+        }
+        debug { applicationIdSuffix '' }
+    }
+    packaging { resources { excludes += ['/META-INF/{AL2.0,LGPL2.1}'] } }
+}
+
+dependencies {
+    implementation 'androidx.media3:media3-exoplayer:1.11.1'
+    implementation 'androidx.media3:media3-ui:1.11.1'
+}
