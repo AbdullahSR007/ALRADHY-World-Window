@@ -6,7 +6,8 @@ param(
     [string]$SigningKeyAlias = $env:INFINITY_KEY_ALIAS,
     [ValidateSet('PKCS12','JKS')]
     [string]$StoreType = $(if ($env:INFINITY_STORE_TYPE) { $env:INFINITY_STORE_TYPE } else { 'PKCS12' }),
-    [string]$GradlePath
+    [string]$GradlePath,
+    [string]$OutputDirectory = (Join-Path $HOME "Downloads\ALRADHY-APKs\INFINITY")
 )
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -183,7 +184,7 @@ try {
     if (-not (Test-Path $apk)) { throw "Gradle reported success, but release APK was not found: $apk" }
     $candidate = Read-ApkIdentity $apk
     Assert-ApkUpdate $previous $candidate
-    $outputDir = Join-Path $HOME "Downloads\ALRADHY-APKs\INFINITY"
+    $outputDir = $OutputDirectory
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
     $target = Join-Path $outputDir "ALRADHY-World-Window-INFINITY-update-$($candidate.VersionCode).apk"
     if (Test-Path -LiteralPath $target) { throw "An APK already exists at the destination." }

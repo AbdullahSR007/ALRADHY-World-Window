@@ -21,8 +21,8 @@ android {
         applicationId 'com.alradhy.worldwindow.infinity'
         minSdk 26
         targetSdk 34
-        versionCode 10007
-        versionName '1.1.0-alpha6'
+        versionCode 10008
+        versionName '1.1.0-world'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -36,9 +36,20 @@ android {
         debug { applicationIdSuffix '' }
     }
     packaging { resources { excludes += ['/META-INF/{AL2.0,LGPL2.1}'] } }
+    testOptions {
+        unitTests.includeAndroidResources = true
+        unitTests.all {
+            def testHome = layout.buildDirectory.dir('test-home').get().asFile
+            doFirst { testHome.mkdirs() }
+            systemProperty 'user.home', testHome.absolutePath
+            systemProperty 'robolectric.dependency.repo.url', 'https://repo.maven.apache.org/maven2'
+        }
+    }
 }
 
 dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
     implementation 'androidx.media3:media3-exoplayer:1.11.1'
     implementation 'androidx.media3:media3-ui:1.11.1'
 }
