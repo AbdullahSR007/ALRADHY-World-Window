@@ -20,6 +20,7 @@ public final class OfflineDownloadService extends Service {
     public static final String PICTURES_ALL="com.alradhy.infinity.PICTURES_ALL";
     public static final String PICTURES_ONE="com.alradhy.infinity.PICTURES_ONE";
     public static final String PAUSE="com.alradhy.infinity.PAUSE";
+    public static final String RESUME="com.alradhy.infinity.RESUME";
     public static final String EXTRA_ID="scene_id";
     private static final String CHANNEL="infinity_offline_v1";
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
@@ -44,21 +45,30 @@ public final class OfflineDownloadService extends Service {
     }
     @Override public int onStartCommand(Intent intent,int flags,int startId){
         latestStartId=startId;
-        String action=intent!=null?intent.getAction():ALL;
+        SharedPreferences queue=getSharedPreferences("infinity_queue",MODE_PRIVATE);
+        String action=intent!=null?intent.getAction():RESUME;
+        String requestId=intent!=null?intent.getStringExtra(EXTRA_ID):null;
+        if(RESUME.equals(action)){
+            action=queue.getString("action",ALL);
+            requestId=queue.getString("id",null);
+        }
         if(PAUSE.equals(action)){
             if(isRunning()){paused=true;notice("Pausing safely…",finished,total);}
             else stopSelf(startId);
             return START_NOT_STICKY;
         }
         if(isRunning())return START_REDELIVER_INTENT;
+        if(!ALL.equals(action)&&!ONE.equals(action)&&!PICTURES_ALL.equals(action)&&!PICTURES_ONE.equals(action)){
+            stopSelf(startId);return START_NOT_STICKY;
+        }
+        queue.edit().putString("action",action).putString("id",requestId).putBoolean("pending",true).commit();
         runningAction=action==null?ALL:action;
         pictures=isSavingPictures();
         paused=false;finished=0;total=0;failures=0;
         String preparing=pictures?"Preparing offline pictures…":"Preparing offline library…";
         startForeground(6401,notification(preparing,0,0));
         notice(preparing,0,0);
-        final String requested=(ONE.equals(action)||PICTURES_ONE.equals(action))&&intent!=null
-            ?intent.getStringExtra(EXTRA_ID):null;
+        final String requested=(ONE.equals(action)||PICTURES_ONE.equals(action))?requestId:null;
         worker.execute(()->process(requested));
         return START_REDELIVER_INTENT;
     }
@@ -113,6 +123,8 @@ public final class OfflineDownloadService extends Service {
         }catch(Exception e){
             notice("Stopped: "+e.getMessage(),finished,total);
         }finally{
+            getSharedPreferences("infinity_queue",MODE_PRIVATE).edit()
+                .putBoolean("pending",paused||finished<total||failures>0).commit();
             if(wake!=null&&wake.isHeld())wake.release();
             main.post(()->{
                 if(destroyed)return;
@@ -124,6 +136,7 @@ public final class OfflineDownloadService extends Service {
         }
     }
     private void processPictures(List<Scene> scenes)throws GalleryStore.StorageFullException{
+        List<Scene> retry=new ArrayList<>();
         for(int i=0;i<scenes.size()&&!paused;i++){
             Scene scene=scenes.get(i);
             GalleryStore gallery=new GalleryStore(this,scene);
@@ -138,13 +151,26 @@ public final class OfflineDownloadService extends Service {
                     });
                 }
                 if(photos.size()>=GalleryStore.TARGET)finished++;
-                else if(!paused)failures++;
+                else if(!paused)retry.add(scene);
             }catch(GalleryStore.StorageFullException error){
                 throw error;
             }catch(IOException error){
-                if(!paused)failures++;
+                if(!paused)retry.add(scene);
                 Log.w("InfinityDownload",scene.id+": picture pack incomplete",error);
             }
+        }
+        // One bounded second pass only visits incomplete packs; verified photos stay in place.
+        for(Scene scene:retry){
+            if(paused)break;
+            GalleryStore gallery=new GalleryStore(this,scene);
+            try{
+                notice("Retrying missing pictures • "+scene.title,finished,total);
+                List<GalleryStore.Photo> photos=gallery.download(scene,()->paused,(message,items)->{
+                    if(!paused)notice("Retry • "+scene.title+" • "+items.size()+"/20 pictures",finished,total);
+                });
+                if(photos.size()>=GalleryStore.TARGET)finished++;else if(!paused)failures++;
+            }catch(GalleryStore.StorageFullException error){throw error;}
+            catch(IOException error){if(!paused)failures++;}
         }
         notice(paused?"Pictures paused • saved photos kept":
             "Pictures • "+finished+"/"+total+" packs complete • "+failures+" incomplete",finished,total);

@@ -14,6 +14,8 @@ import java.util.*;
 public final class CinematicView extends View {
     public interface Actions {
         void play(Scene scene);
+        void tools(Scene scene, GalleryStore.Photo photo);
+        void addPlace();
         void download(Scene scene);
         void downloadAllOrPause();
         void downloadPictures(Scene scene);
@@ -39,7 +41,7 @@ public final class CinematicView extends View {
     private int hover=-1;
     /** Header chips: the five categories, then AMBIENT. */
     private int headerIndex=0;
-    private static final int AMBIENT_CHIP=5, CHIP_X=990, CHIP_STEP=148, CHIP_W=140;
+    private static final int AMBIENT_CHIP=6, ADD_CHIP=7, TOOLS_CHIP=8, CHIP_X=700, CHIP_STEP=130, CHIP_W=122;
     private volatile GalleryStore.Summary pictures=GalleryStore.Summary.EMPTY;
     private float downX,downY;
     private final Typeface heading=Typeface.create("sans-serif-light",Typeface.NORMAL);
@@ -57,7 +59,7 @@ public final class CinematicView extends View {
         pictures=summary==null?GalleryStore.Summary.EMPTY:summary;
         postInvalidate();
     }
-    private int chipAt(float x){return Math.max(0,Math.min(AMBIENT_CHIP,(int)((x-CHIP_X)/CHIP_STEP)));}
+    private int chipAt(float x){return Math.max(0,Math.min(TOOLS_CHIP,(int)((x-CHIP_X)/CHIP_STEP)));}
     void restoreSelection(String category,String sceneId){
         int savedCategory=Arrays.asList(SceneCatalog.CATEGORIES).indexOf(category);
         if(savedCategory<0)return;
@@ -131,6 +133,7 @@ public final class CinematicView extends View {
             if(pictureStore!=null){drawPictureHero(raw,s);drawPictureControls(raw,s);}
             else {drawHero(raw,s);drawDetails(raw,s);}
         }
+        if(s==null)label(raw,"Use + PLACE or favourite a destination in OPTIONS to build My World.",240,450,28,CREAM,medium,false);
         if(pictureStore!=null)drawPictureStrip(raw);
         else drawStrip(raw);
         drawFooter(raw);
@@ -169,17 +172,17 @@ public final class CinematicView extends View {
     private void drawHeader(Canvas c){
         label(c,"ALRADHY",232,66,36,GOLD,medium,false);
         label(c,"WORLD WINDOW",232,114,51,CREAM,heading,false);
-        label(c,"∞",634,110,54,GOLD,heading,false);
-        label(c,"CINEMATIC EXPLORATION",700,108,17,PALE,medium,false);
-        for(int i=0;i<=AMBIENT_CHIP;i++){
+
+
+        for(int i=0;i<=TOOLS_CHIP;i++){
             int x=CHIP_X+i*CHIP_STEP;
             boolean ambientChip=i==AMBIENT_CHIP;
-            boolean current=!ambientChip && i==categoryIndex;
+            boolean current=i<SceneCatalog.CATEGORIES.length && i==categoryIndex;
             boolean focused=focus==0 && headerIndex==i;
             rounded(c,x,57,CHIP_W,57,16,ambientChip?0x66a87b42:current?0x668db3af:0x55203843);
             if(focused)outline(c,x-3,54,CHIP_W+6,63,18,GOLD,3.5f);
             else if(current||hover==i)outline(c,x,57,CHIP_W,57,16,current?GOLD:0xff6b9da7,2);
-            label(c,ambientChip?"☾ AMBIENT":SceneCatalog.CATEGORIES[i],x+CHIP_W/2f,94,ambientChip?19:21,
+            label(c,ambientChip?"AMBIENT":i==ADD_CHIP?"+ PLACE":i==TOOLS_CHIP?"OPTIONS":SceneCatalog.CATEGORIES[i],x+CHIP_W/2f,94,18,
                 current||ambientChip?CREAM:PALE,medium,true);
         }
         rounded(c,224,132,1650,1,0,0x66789598);
@@ -242,7 +245,7 @@ public final class CinematicView extends View {
         label(c,photos.size()+"/"+GalleryStore.TARGET+" saved for offline viewing",1404,371,23,PALE,medium,false);
         boolean running=OfflineDownloadService.isSavingPictures();
         action(c,0,1404,430,"←    BACK TO DESTINATIONS",false);
-        action(c,1,1404,495,photos.isEmpty()?"▶    SLIDESHOW  (save pictures first)":"▶    FULL-SCREEN SLIDESHOW",false);
+        action(c,1,1404,495,"▶    SLIDESHOW • ALL PLACES",false);
         action(c,2,1404,560,photos.size()>=GalleryStore.TARGET?"×    REMOVE THIS PACK":
             photos.isEmpty()?"↓    SAVE THIS PACK":"↓    SAVE MISSING  ("+photos.size()+"/"+GalleryStore.TARGET+")",false);
         action(c,3,1404,625,running?"Ⅱ    PAUSE PICTURE DOWNLOADS":"⇩    DOWNLOAD ALL PICTURES",true);
@@ -267,16 +270,16 @@ public final class CinematicView extends View {
     private void drawDetails(Canvas c,Scene s){
         rounded(c,1360,157,516,558,26,0xdd102b35);
         outline(c,1360,157,516,558,26,0x6669979b,1.8f);
-        label(c,"A WINDOW TO WONDER",1401,207,21,GOLD,medium,false);
+        label(c,new WorldStore(getContext()).favourite(s)?"♥  MY WORLD":"A WINDOW TO WONDER",1401,207,21,GOLD,medium,false);
         label(c,String.format(Locale.US,"%02d  /  %02d",index+1,visible.size()),
              1815,207,22,PALE,medium,true);
-        label(c,"YOUR NEXT DESTINATION",1402,277,20,0xff9bb7bd,medium,false);
+        label(c,new WorldStore(getContext()).daylight(s),1402,277,20,0xff9bb7bd,medium,false);
         label(c,fit(s.title,52,436),1402,344,52,CREAM,heading,false);
         String clock;
-        try{clock=ZonedDateTime.now(ZoneId.of(s.zone)).format(timeFormat);}
+        try{clock=ZonedDateTime.now(ZoneId.of(new WorldStore(getContext()).zone(s))).format(timeFormat);}
         catch(Exception e){clock="--:--";}
         label(c,clock,1404,414,48,GOLD,medium,false);
-        label(c,"LOCAL TIME   •   "+s.zone.replace('_',' '),1560,410,20,PALE,medium,false);
+        label(c,fit("LOCAL TIME • "+new WorldStore(getContext()).zone(s).replace('_',' '),20,265),1560,410,20,PALE,medium,false);
         android.content.SharedPreferences downloads=getContext().getSharedPreferences("infinity_downloads",Context.MODE_PRIVATE);
         boolean downloading=OfflineDownloadService.isRunning();
         String downloadStatus=downloads.getString("status","");
@@ -398,6 +401,8 @@ public final class CinematicView extends View {
     }
     @Override public boolean onKeyDown(int key,KeyEvent e){
         switch(key){
+            case KeyEvent.KEYCODE_MENU:
+                actions.tools(selected(),pictureStore!=null&&!photos.isEmpty()?photos.get(photoIndex):null);return true;
             case KeyEvent.KEYCODE_DPAD_UP:
                 if(focus==2&&buttonIndex>0){buttonIndex--;invalidate();return true;}
                 if(focus==1)headerIndex=categoryIndex;
@@ -431,18 +436,21 @@ public final class CinematicView extends View {
     }
     /** LEFT/RIGHT on the header switches category at once; AMBIENT waits for OK. */
     private void moveHeader(int d){
-        headerIndex=Math.floorMod(headerIndex+d,AMBIENT_CHIP+1);
+        headerIndex=Math.floorMod(headerIndex+d,TOOLS_CHIP+1);
         if(headerIndex<AMBIENT_CHIP)selectCategory(headerIndex);
         invalidate();
     }
     private void activate(){
         if(focus==0){
             if(headerIndex==AMBIENT_CHIP){actions.ambient(null,0);return;}
+            if(headerIndex==ADD_CHIP){actions.addPlace();return;}
+            if(headerIndex==TOOLS_CHIP){actions.tools(selected(),pictureStore!=null&&!photos.isEmpty()?photos.get(photoIndex):null);return;}
             selectCategory(categoryIndex);focus=1;return;
         }
         Scene s=selected();if(s==null)return;
         if(pictureStore!=null){
-            if(focus==1 || buttonIndex==1){if(!photos.isEmpty())actions.ambient(s,photoIndex);}
+            if(focus==1){actions.ambient(s,photoIndex);}
+            else if(buttonIndex==1){actions.ambient(null,0);}
             else if(buttonIndex==0)closePictures();
             else if(buttonIndex==2){
                 if(photos.size()>=GalleryStore.TARGET)actions.removePictures(s);
@@ -475,6 +483,8 @@ public final class CinematicView extends View {
                 int chip=chipAt(x);
                 focus=0;headerIndex=chip;
                 if(chip==AMBIENT_CHIP)actions.ambient(null,0);
+                else if(chip==ADD_CHIP)actions.addPlace();
+                else if(chip==TOOLS_CHIP)actions.tools(selected(),pictureStore!=null&&!photos.isEmpty()?photos.get(photoIndex):null);
                 else selectCategory(chip);
                 invalidate();return true;
             }

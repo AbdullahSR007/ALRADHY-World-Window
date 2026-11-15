@@ -20,12 +20,16 @@ import java.util.concurrent.Executors;
  * Shared by the in-app Ambient Mode and the Android TV screensaver.
  */
 final class AmbientView extends View {
-    private static final long SLIDE_MS=12_000, FADE_MS=1_800, HINT_MS=5_000;
+    private static final long FADE_MS=1_800, HINT_MS=5_000;
+    private final long SLIDE_MS;
+    private final boolean fitWhole;
     private static final int GOLD=Color.rgb(223,181,111), CREAM=Color.rgb(245,244,232), PALE=Color.rgb(178,201,205);
 
     static final class Slide {
         final File file;
         final String place,arabic,zone,caption;
+        String fact="",sun="",sceneId="";
+        int photoIndex=-1;
         Slide(File file,String place,String arabic,String zone,String caption){
             this.file=file;this.place=place;this.arabic=arabic;this.zone=zone;this.caption=caption;
         }
@@ -39,6 +43,7 @@ final class AmbientView extends View {
     private final DateTimeFormatter clockFormat=DateTimeFormatter.ofPattern("HH:mm",Locale.US);
     private final String sceneId;
     private final int startIndex;
+    String anchorScene;
     private ExecutorService loader;
     private List<Slide> slides=Collections.emptyList();
     private boolean ready,loading,paused;
@@ -51,6 +56,9 @@ final class AmbientView extends View {
     /** @param sceneId one destination's pack in order, or null for the whole library shuffled. */
     AmbientView(Context context,String sceneId,int startIndex){
         super(context);
+        WorldStore settings=new WorldStore(context);
+        SLIDE_MS=1000L*Math.max(8,Math.min(60,settings.prefs.getInt("seconds",12)));
+        fitWhole=settings.prefs.getBoolean("fit",false);
         this.sceneId=sceneId;this.startIndex=Math.max(0,startIndex);
         setFocusable(true);setFocusableInTouchMode(true);
         setLayerType(View.LAYER_TYPE_HARDWARE,null);
@@ -67,7 +75,12 @@ final class AmbientView extends View {
             main.post(()->{
                 if(loader==null)return;
                 slides=found;ready=true;
-                if(!slides.isEmpty())show(Math.min(startIndex,slides.size()-1));
+                int first=Math.min(startIndex,slides.size()-1);
+                if(anchorScene!=null)for(int i=0;i<slides.size();i++){
+                    Slide slide=slides.get(i);
+                    if(anchorScene.equals(slide.sceneId)&&slide.photoIndex==startIndex){first=i;break;}
+                }
+                if(!slides.isEmpty())show(first);
                 invalidate();
             });
         });
@@ -155,9 +168,9 @@ final class AmbientView extends View {
         float w=getWidth(),h=getHeight();
         float cover=Math.max(w/b.getWidth(),h/b.getHeight());
         float zoom=1.04f+0.09f*Math.max(0,Math.min(1,progress));
-        float scale=cover*zoom;
+        float scale=fitWhole?Math.min(w/b.getWidth(),h/b.getHeight()):cover*zoom;
         float dw=b.getWidth()*scale,dh=b.getHeight()*scale;
-        float travelX=(dw-w)/2f,travelY=(dh-h)/2f;
+        float travelX=fitWhole?0:(dw-w)/2f,travelY=fitWhole?0:(dh-h)/2f;
         float direction=(seed%2==0)?1:-1;
         float pan=(progress-0.5f)*direction;
         float x=(w-dw)/2f+travelX*pan*0.8f;
@@ -181,10 +194,10 @@ final class AmbientView extends View {
             return;
         }
         if(slides.isEmpty()){
-            text(c,"No offline pictures yet",960,520,58,CREAM,light,Paint.Align.CENTER);
+            text(c,"No saved pictures match this selection",960,520,58,CREAM,light,Paint.Align.CENTER);
             text(c,"Open a destination → PICTURES → SAVE THIS PACK, or use DOWNLOAD ALL PICTURES.",
                 960,590,26,PALE,medium,Paint.Align.CENTER);
-            text(c,"Ambient Mode then plays them here — fully offline.",960,632,26,PALE,medium,Paint.Align.CENTER);
+            text(c,"Check your Ambient mix or refresh sun times in OPTIONS.",960,632,26,PALE,medium,Paint.Align.CENTER);
             text(c,ZonedDateTime.now().format(clockFormat),1840,110,64,CREAM,light,Paint.Align.RIGHT);
             return;
         }
@@ -196,6 +209,9 @@ final class AmbientView extends View {
         text(c,clock,1840,118,72,CREAM,light,Paint.Align.RIGHT);
         text(c,"LOCAL TIME  •  "+zone.replace('_',' '),1840,156,19,PALE,medium,Paint.Align.RIGHT);
 
+        text(c,fit(s.sun,23,1600,medium),80,760,23,GOLD,medium,Paint.Align.LEFT);
+        text(c,fit(s.fact,23,1700,medium),80,810,23,CREAM,medium,Paint.Align.LEFT);
+        if(!s.fact.isEmpty())text(c,"Facts: Wikipedia • CC BY-SA 4.0 • source in OPTIONS / About",80,845,17,PALE,medium,Paint.Align.LEFT);
         text(c,fit(s.place,78,1300,light),80,930,78,CREAM,light,Paint.Align.LEFT);
         if(!s.arabic.isEmpty())text(c,s.arabic,82,985,36,0xffe9c891,medium,Paint.Align.LEFT);
         text(c,fit(s.caption,19,1250,medium),84,1030,19,PALE,medium,Paint.Align.LEFT);
@@ -238,21 +254,31 @@ final class AmbientView extends View {
     static List<Slide> collect(Context context,String sceneId){
         List<Slide> result=new ArrayList<>();
         LibraryStore library=LibraryStore.shared(context);
+        WorldStore world=new WorldStore(context);
+        int mix=sceneId==null?world.prefs.getInt("mix",0):0;
         for(Scene scene:library.scenes){
             if(sceneId!=null && !sceneId.equals(scene.id))continue;
+            String sun=world.daylight(scene);
+            if(mix==2&&!sun.startsWith("Daylight"))continue;
+            if(mix==3&&!sun.startsWith("Night"))continue;
             GalleryStore gallery=new GalleryStore(context,scene);
+            int photoIndex=0;
             for(GalleryStore.Photo photo:gallery.saved()){
+                int originalIndex=photoIndex++;
+                if(mix==1&&!world.favourite(scene)&&!world.photoFavourite(scene,photo.file))continue;
                 String credit=photo.credit.isEmpty()?photo.provider:photo.credit+" • "+photo.provider;
                 String caption=photo.title.isEmpty()?credit:photo.title+"   •   "+credit;
-                result.add(new Slide(gallery.file(photo),scene.title,scene.arabic,scene.zone,caption));
+                Slide slide=new Slide(gallery.file(photo),scene.title,scene.arabic,world.zone(scene),caption+" • "+photo.license);
+                slide.sceneId=scene.id;slide.photoIndex=originalIndex;
+                slide.fact=world.info(scene).optString("extract","").replaceAll("\\s+"," ");slide.sun=sun;result.add(slide);
             }
-            if(sceneId==null && scene.isOffline() && !scene.isVideo()){
+            if(sceneId==null && (mix!=1||world.favourite(scene)) && scene.isOffline() && !scene.isVideo()){
                 String credit=scene.hasOfflinePicture()?scene.offlineCredit:scene.credit;
                 result.add(new Slide(new File(scene.localMedia),scene.title,scene.arabic,scene.zone,
                     credit.isEmpty()?scene.subtitle:scene.subtitle+"   •   "+credit));
             }
         }
-        if(sceneId==null)Collections.shuffle(result);
+        if(sceneId==null && world.prefs.getBoolean("shuffle",true))Collections.shuffle(result);
         return result;
     }
 }

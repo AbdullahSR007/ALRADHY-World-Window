@@ -11,6 +11,7 @@ import android.view.WindowManager;
 public final class AmbientActivity extends Activity {
     static final String EXTRA_SCENE="scene_id";
     static final String EXTRA_START="start";
+    static final String EXTRA_ANCHOR_SCENE="anchor_scene";
     private AmbientView ambient;
     private float downX;
 
@@ -23,6 +24,7 @@ public final class AmbientActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         ambient=new AmbientView(this,getIntent().getStringExtra(EXTRA_SCENE),
             getIntent().getIntExtra(EXTRA_START,0));
+        ambient.anchorScene=getIntent().getStringExtra(EXTRA_ANCHOR_SCENE);
         setContentView(ambient);
         ambient.requestFocus();
         ambient.start();

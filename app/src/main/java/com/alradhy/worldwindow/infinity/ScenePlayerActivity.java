@@ -18,6 +18,7 @@ import java.util.*;
 import java.util.concurrent.*;
 
 /** Full-bleed cinema. Videos via Media3; stills via gentle Ken Burns motion. */
+@android.annotation.SuppressLint("UnsafeOptInUsageError")
 public final class ScenePlayerActivity extends Activity {
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ExecutorService discovery=Executors.newSingleThreadExecutor();
@@ -83,7 +84,7 @@ public final class ScenePlayerActivity extends Activity {
     }
     private TextView text(int sp,int color,boolean strong){
         TextView t=new TextView(this);t.setTextColor(color);t.setTextSize(sp);
-        t.setTypeface(android.graphics.Typeface.create(strong?"sans-serif-medium":"sans-serif-light",0));
+        t.setTypeface(android.graphics.Typeface.create(strong?"sans-serif-medium":"sans-serif-light",android.graphics.Typeface.NORMAL));
         t.setPadding(0,dp(3),0,dp(6));return t;
     }
     private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+0.5f);}

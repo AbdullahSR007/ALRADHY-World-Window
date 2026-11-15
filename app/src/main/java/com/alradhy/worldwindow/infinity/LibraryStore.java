@@ -22,7 +22,8 @@ public final class LibraryStore {
     public LibraryStore(Context context) {
         app=context.getApplicationContext();
         index=new File(app.getFilesDir(),"infinity-library-v1.json");
-        scenes=Collections.unmodifiableList(SceneCatalog.create());
+        scenes=new java.util.concurrent.CopyOnWriteArrayList<>(SceneCatalog.create());
+        scenes.addAll(new WorldStore(app).custom());
         restore();
     }
     public Context context(){return app;}
@@ -31,6 +32,12 @@ public final class LibraryStore {
         return null;
     }
     public List<Scene> category(String category){
+        if(category.equals("MY WORLD")){
+            ArrayList<Scene> favourites=new ArrayList<>();
+            WorldStore world=new WorldStore(app);
+            for(Scene s:scenes)if(world.favourite(s)||world.hasFavouritePhotos(s)||s.id.startsWith("U"))favourites.add(s);
+            return favourites;
+        }
         if(category.equals("ALL"))return new ArrayList<>(scenes);
         ArrayList<Scene> out=new ArrayList<>();
         for(Scene s:scenes)if(s.category.equals(category))out.add(s);

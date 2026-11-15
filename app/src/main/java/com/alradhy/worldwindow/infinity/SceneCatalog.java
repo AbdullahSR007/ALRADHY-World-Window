@@ -3,7 +3,7 @@ import java.util.*;
 /** Curated, distinct destinations. Discovery resolves legally reusable assets, not dead hotlinks. */
 public final class SceneCatalog {
     private SceneCatalog(){}
-    public static final String[] CATEGORIES={"ALL","CITIES","NATURE","OCEANS","SPACE"};
+    public static final String[] CATEGORIES={"ALL","CITIES","NATURE","OCEANS","SPACE","MY WORLD"};
     public static List<Scene> create(){
         ArrayList<Scene> scenes=new ArrayList<>();
         add(scenes,"CITIES","COMMONS",CITIES_DATA);
