@@ -4,6 +4,8 @@ param(
     [string]$PreviousApk,
     [string]$SigningKeyPath = $env:INFINITY_KEYSTORE_PATH,
     [string]$SigningKeyAlias = $env:INFINITY_KEY_ALIAS,
+    [ValidateSet('PKCS12','JKS')]
+    [string]$StoreType = $(if ($env:INFINITY_STORE_TYPE) { $env:INFINITY_STORE_TYPE } else { 'PKCS12' }),
     [string]$GradlePath
 )
 $ErrorActionPreference = "Stop"
@@ -81,7 +83,7 @@ function Assert-ApkUpdate($Previous, $Candidate) {
 }
 
 function Read-KeyCertificate([string]$KeyTool, [string]$Path, [string]$Alias) {
-    $pem = & $KeyTool -exportcert -rfc -storetype PKCS12 -keystore $Path -alias $Alias -storepass:env INFINITY_STORE_PASS
+    $pem = & $KeyTool -exportcert -rfc -storetype $StoreType -keystore $Path -alias $Alias -storepass:env INFINITY_STORE_PASS
     if ($LASTEXITCODE -ne 0) { throw "Could not read the certificate for the existing signing key." }
     $der = [Convert]::FromBase64String(($pem | Where-Object { $_ -notmatch '^-----' }) -join '')
     $sha = [Security.Cryptography.SHA256]::Create()
@@ -146,18 +148,20 @@ if (-not (Test-Path $gradleExe)) {
 }
 if (-not (Test-Path $gradleExe)) { Fail "Gradle executable unavailable: $gradleExe" }
 
-$secure = Read-Host "Password for the existing INFINITY signing key (input hidden)" -AsSecureString
-$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-$password = $null
-try {
-    $password = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-} finally {
-    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+$password = $env:INFINITY_STORE_PASS
+if ([string]::IsNullOrEmpty($password)) {
+    $secure = Read-Host "Password for the existing INFINITY signing key (input hidden)" -AsSecureString
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try {
+        $password = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    }
 }
 if ([string]::IsNullOrEmpty($password)) { Fail "Enter the existing signing password." }
 
 $apk = Join-Path $root "app\build\outputs\apk\release\app-release.apk"
-$signingVariables = 'INFINITY_KEYSTORE_PATH', 'INFINITY_STORE_PASS', 'INFINITY_KEY_ALIAS', 'INFINITY_KEY_PASS'
+$signingVariables = 'INFINITY_KEYSTORE_PATH', 'INFINITY_STORE_PASS', 'INFINITY_KEY_ALIAS', 'INFINITY_KEY_PASS', 'INFINITY_STORE_TYPE'
 $savedSigning = @{}
 foreach ($name in $signingVariables) { $savedSigning[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 try {
@@ -165,6 +169,7 @@ try {
     $env:INFINITY_STORE_PASS = $password
     $env:INFINITY_KEY_ALIAS = $SigningKeyAlias
     $env:INFINITY_KEY_PASS = $password
+    $env:INFINITY_STORE_TYPE = $StoreType
     $keyCertificate = Read-KeyCertificate (Join-Path $javaHome 'bin\keytool.exe') $key $SigningKeyAlias
     if ($keyCertificate -ne $previous.Certificate) {
         throw "This key does not match the certificate of the installed version."

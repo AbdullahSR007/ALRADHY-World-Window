@@ -11,7 +11,7 @@ android {
                 storePassword System.getenv('INFINITY_STORE_PASS')
                 keyAlias System.getenv('INFINITY_KEY_ALIAS') ?: 'infinity'
                 keyPassword System.getenv('INFINITY_KEY_PASS')
-                storeType 'PKCS12'
+                storeType System.getenv('INFINITY_STORE_TYPE') ?: 'PKCS12'
             }
         }
     }
