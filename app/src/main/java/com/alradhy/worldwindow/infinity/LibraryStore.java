@@ -9,6 +9,13 @@ import java.util.*;
 
 /** Small atomic metadata index, independent of large media files. */
 public final class LibraryStore {
+    private static volatile LibraryStore instance;
+    public static LibraryStore shared(Context context) {
+        if(instance==null) synchronized(LibraryStore.class) {
+            if(instance==null)instance=new LibraryStore(context);
+        }
+        return instance;
+    }
     private final Context app;
     private final File index;
     public final List<Scene> scenes;
