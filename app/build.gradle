@@ -21,8 +21,8 @@ android {
         applicationId 'com.alradhy.worldwindow.infinity'
         minSdk 26
         targetSdk 34
-        versionCode 10006
-        versionName '1.1.0-alpha5'
+        versionCode 10007
+        versionName '1.1.0-alpha6'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

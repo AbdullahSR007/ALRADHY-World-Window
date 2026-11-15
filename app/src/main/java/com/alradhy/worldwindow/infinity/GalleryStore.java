@@ -108,11 +108,56 @@ final class GalleryStore {
 
     File file(Photo photo){return new File(directory,photo.file);}
 
+    /** Deletes this destination's pack only; it never touches the media queue's files. */
+    boolean delete(){
+        synchronized(INDEX_LOCK){
+            File[] files=directory.listFiles();
+            boolean ok=true;
+            if(files!=null)for(File f:files)if(f.isFile() && !f.delete())ok=false;
+            if(directory.isDirectory() && !directory.delete())ok=false;
+            return ok;
+        }
+    }
+
+    /** Library-wide picture totals, read off the main thread. */
+    static final class Summary {
+        static final Summary EMPTY=new Summary(Collections.emptyMap(),0,0,0);
+        final Map<String,Integer> counts;
+        final int packs,photos;
+        final long bytes;
+        Summary(Map<String,Integer> counts,int packs,int photos,long bytes){
+            this.counts=counts;this.packs=packs;this.photos=photos;this.bytes=bytes;
+        }
+        int count(Scene scene){Integer n=counts.get(scene.id);return n==null?0:n;}
+    }
+
+    static Summary summarize(Context context,List<Scene> scenes){
+        Map<String,Integer> counts=new HashMap<>();
+        int packs=0,total=0;long bytes=0;
+        for(Scene scene:scenes){
+            GalleryStore store=new GalleryStore(context,scene);
+            if(!store.directory.isDirectory())continue;
+            List<Photo> saved=store.saved();
+            if(saved.isEmpty())continue;
+            counts.put(scene.id,saved.size());
+            total+=saved.size();
+            if(saved.size()>=TARGET)packs++;
+            for(Photo photo:saved)bytes+=store.file(photo).length();
+        }
+        return new Summary(Collections.unmodifiableMap(counts),packs,total,bytes);
+    }
+
+    private static final int PARALLEL=3;
+    private static final class Fetched {
+        final Source source;final byte[] bytes;
+        Fetched(Source source,byte[] bytes){this.source=source;this.bytes=bytes;}
+    }
+
     List<Photo> download(Scene scene,BooleanSupplier cancelled,Progress progress)throws IOException{
         List<Photo> photos=saved();
         if(photos.size()>=TARGET || cancelled.getAsBoolean())return photos;
         long deadline=SystemClock.elapsedRealtime()+180_000;
-        BooleanSupplier done=()->cancelled.getAsBoolean() || SystemClock.elapsedRealtime()>=deadline;
+        BooleanSupplier stop=()->cancelled.getAsBoolean() || SystemClock.elapsedRealtime()>=deadline;
         if(!directory.isDirectory() && !directory.mkdirs() && !directory.isDirectory())
             throw new IOException("Picture storage unavailable");
         Set<String> pages=new HashSet<>(), files=new HashSet<>(), attempted=new HashSet<>();
@@ -122,36 +167,60 @@ final class GalleryStore {
             files.add(p.file);
         }
         int limit=60;
-        for(int round=0;round<2 && photos.size()<TARGET && limit>0 && !done.getAsBoolean();round++){
-            List<List<Source>> providers=new ArrayList<>();
-            String query=round==0?scene.title:scene.search;
-            progress.update("Finding pictures across sources…",new ArrayList<>(photos));
-            providers.add(commons(query,done));
-            providers.add(openverse(query,round+1,done));
-            if(round==0 && "NASA".equals(scene.provider))providers.add(nasa(query,done));
-            for(int i=0;i<32 && photos.size()<TARGET && limit>0 && !done.getAsBoolean();i++){
-                for(List<Source> choices:providers){
-                    if(photos.size()>=TARGET || limit==0 || done.getAsBoolean())break;
+        // Three verified image fetches run at once; saving stays on this thread, one at a time.
+        java.util.concurrent.ExecutorService pool=java.util.concurrent.Executors.newFixedThreadPool(PARALLEL);
+        try{
+            for(int round=0;round<2 && photos.size()<TARGET && limit>0 && !stop.getAsBoolean();round++){
+                List<List<Source>> providers=new ArrayList<>();
+                String query=round==0?scene.title:scene.search;
+                progress.update("Finding pictures across sources…",new ArrayList<>(photos));
+                providers.add(commons(query,stop));
+                providers.add(openverse(query,round+1,stop));
+                if(round==0 && "NASA".equals(scene.provider))providers.add(nasa(query,stop));
+                // Interleave providers so one slow source never blocks a whole pack.
+                List<Source> queue=new ArrayList<>();
+                for(int i=0;i<32;i++)for(List<Source> choices:providers){
                     if(i>=choices.size())continue;
                     Source source=choices.get(i);
-                    if(!attempted.add(source.url) || (!source.page.isEmpty() && pages.contains(source.page)))continue;
-                    limit--;
-                    if(directory.getUsableSpace()<24L*1024*1024)throw new StorageFullException();
-                    progress.update("Saving from "+source.provider+"…",new ArrayList<>(photos));
-                    byte[] bytes;
-                    try{bytes=readImage(source.url,done);}
-                    catch(IOException ignored){continue;}
-                    if(bytes==null || done.getAsBoolean())continue;
-                    String name=digest(bytes)+".img";
+                    if((source.page.isEmpty() || !pages.contains(source.page)) && attempted.add(source.url))queue.add(source);
+                }
+                java.util.concurrent.CompletionService<Fetched> completed=
+                    new java.util.concurrent.ExecutorCompletionService<>(pool);
+                int next=0,inFlight=0;
+                while(!stop.getAsBoolean()){
+                    while(inFlight<PARALLEL && next<queue.size() && photos.size()+inFlight<TARGET && limit>0){
+                        Source source=queue.get(next++);
+                        if(!source.page.isEmpty() && pages.contains(source.page))continue;
+                        if(directory.getUsableSpace()<24L*1024*1024)throw new StorageFullException();
+                        limit--;inFlight++;
+                        completed.submit(()->{
+                            try{return new Fetched(source,readImage(source.url,stop));}
+                            catch(IOException error){return new Fetched(source,null);}
+                        });
+                    }
+                    if(inFlight==0)break;
+                    java.util.concurrent.Future<Fetched> result;
+                    try{result=completed.poll(400,java.util.concurrent.TimeUnit.MILLISECONDS);}
+                    catch(InterruptedException interrupted){Thread.currentThread().interrupt();break;}
+                    if(result==null)continue;
+                    inFlight--;
+                    Fetched fetched;
+                    try{fetched=result.get();}
+                    catch(Exception error){continue;}
+                    if(fetched.bytes==null || stop.getAsBoolean() || photos.size()>=TARGET)continue;
+                    Source source=fetched.source;
+                    if(!source.page.isEmpty() && pages.contains(source.page))continue;
+                    String name=digest(fetched.bytes)+".img";
                     if(files.contains(name))continue;
-                    Photo photo=savePhoto(source,name,bytes,photos);
+                    if(directory.getUsableSpace()<24L*1024*1024)throw new StorageFullException();
+                    Photo photo=savePhoto(source,name,fetched.bytes,photos);
                     files.add(name);
                     if(!source.page.isEmpty())pages.add(source.page);
                     photos.add(photo);
-                    progress.update("Saved for offline use",new ArrayList<>(photos));
+                    progress.update("Saved from "+source.provider,new ArrayList<>(photos));
                 }
             }
-        }
+        }finally{pool.shutdownNow();}
         if(photos.size()<TARGET && !cancelled.getAsBoolean() && SystemClock.elapsedRealtime()>=deadline)
             throw new IOException("Picture pack timed out • retry missing pictures");
         return photos;

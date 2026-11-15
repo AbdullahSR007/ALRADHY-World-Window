@@ -31,6 +31,17 @@ Run on Xiaomi TV Box S 3rd Gen, Android 14, using its real TV remote and air mou
 - [ ] Media survives updating **with the same signing certificate**.
 - [ ] A provider 404 can be re-resolved to a current link.
 
+## Ambient Mode and picture packs (1.1.0-alpha6, build 10007)
+- [ ] Header shows CITIES … SPACE plus ☾ AMBIENT; LEFT/RIGHT on the header switches category, and OK on AMBIENT opens Ambient Mode.
+- [ ] Ambient Mode cross-fades all saved photos with slow motion, the destination name (English and Arabic), its local time, and photo credits, with Wi-Fi off.
+- [ ] In Ambient Mode, ◀ ▶ browse, OK pauses or resumes, and BACK returns to the same destination.
+- [ ] PICTURES → FULL-SCREEN SLIDESHOW (or OK on a thumbnail) plays that destination's pack, starting at the selected photo.
+- [ ] Partial packs offer SAVE MISSING (n/20); complete packs offer REMOVE THIS PACK with a confirmation, and removal deletes only that pack.
+- [ ] Destination cards show a ▧ n badge for saved photos; the footer totals photos and storage.
+- [ ] Picture packs download noticeably faster (three parallel, verified fetches), and pausing stops new fetches promptly.
+- [ ] Screensaver: `INFINITY Ambient` is selectable. On Google TV, set it with `adb shell settings put secure screensaver_components com.alradhy.worldwindow.infinity/.InfinityDreamService`.
+- [ ] Installing 10007 over 10006 keeps saved scenes, picture packs, the last-viewed destination and settings.
+
 ## Stability
 - [ ] Repeated open/back/next operations don't crash.
 - [ ] Videos release player on exit, and playback stops when app backgrounds.

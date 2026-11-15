@@ -17,6 +17,9 @@ public final class MainActivity extends Activity implements CinematicView.Action
     private CinematicView surface;
     private SharedPreferences browsing;
     private final ExecutorService discovery=Executors.newSingleThreadExecutor();
+    private final ExecutorService stats=Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.atomic.AtomicBoolean counting=new java.util.concurrent.atomic.AtomicBoolean();
+    private int ticks;
     private final Set<String> queued=Collections.synchronizedSet(new HashSet<>());
     private final Handler handler=new Handler(Looper.getMainLooper());
     private boolean resumed=false;
@@ -24,6 +27,8 @@ public final class MainActivity extends Activity implements CinematicView.Action
         @Override public void run(){
             if(resumed&&surface!=null){
                 surface.refreshPictures();
+                // Picture totals change only while packs download; recount every 10 s, off the UI thread.
+                if(ticks++%4==0)countPictures();
                 surface.invalidate();
                 handler.postDelayed(this,2500);
             }
@@ -56,6 +61,48 @@ public final class MainActivity extends Activity implements CinematicView.Action
                 }
             });
         }
+    }
+    private void countPictures(){
+        if(!counting.compareAndSet(false,true))return;
+        try{
+            stats.execute(()->{
+                try{
+                    GalleryStore.Summary summary=GalleryStore.summarize(this,library.scenes);
+                    if(surface!=null)surface.setPictureSummary(summary);
+                }catch(Exception ignored){/* totals are informational */}
+                finally{counting.set(false);}
+            });
+        }catch(java.util.concurrent.RejectedExecutionException closed){counting.set(false);}
+    }
+    @Override public void ambient(Scene scene,int start){
+        Intent intent=new Intent(this,AmbientActivity.class);
+        if(scene!=null){
+            intent.putExtra(AmbientActivity.EXTRA_SCENE,scene.id);
+            intent.putExtra(AmbientActivity.EXTRA_START,start);
+        }
+        startActivity(intent);
+    }
+    @Override public void removePictures(Scene scene){
+        if(scene==null)return;
+        if(OfflineDownloadService.isSavingPictures()){
+            Toast.makeText(this,"Pause picture downloads before removing a pack",Toast.LENGTH_LONG).show();
+            return;
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("Remove "+scene.title+" pictures?")
+            .setMessage("The saved photos for this destination will be deleted. Videos, other packs and settings stay.")
+            .setNegativeButton("Keep",null)
+            .setPositiveButton("Remove",(dialog,which)->{
+                if(OfflineDownloadService.isSavingPictures()){
+                    Toast.makeText(this,"Picture downloads started • try again after pausing",Toast.LENGTH_LONG).show();
+                    return;
+                }
+                boolean done=new GalleryStore(this,scene).delete();
+                Toast.makeText(this,done?"Picture pack removed":"Some pictures could not be removed",Toast.LENGTH_LONG).show();
+                surface.refreshPictures();
+                countPictures();
+                surface.invalidate();
+            }).show();
     }
     @Override public void categoryChanged(List<Scene> visible){prefetch(visible);}
     @Override public void sceneChanged(Scene scene){prefetch(Collections.singletonList(scene));}
@@ -132,7 +179,7 @@ public final class MainActivity extends Activity implements CinematicView.Action
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},104);
     }
     @Override protected void onResume(){
-        super.onResume();resumed=true;handler.removeCallbacks(refresh);handler.post(refresh);
+        super.onResume();resumed=true;ticks=0;handler.removeCallbacks(refresh);handler.post(refresh);
         if(surface!=null)surface.requestFocus();
     }
     @Override protected void onPause(){
@@ -148,6 +195,7 @@ public final class MainActivity extends Activity implements CinematicView.Action
     @Override protected void onDestroy(){
         handler.removeCallbacksAndMessages(null);
         discovery.shutdownNow();
+        stats.shutdownNow();
         if(surface!=null)surface.close();
         super.onDestroy();
     }

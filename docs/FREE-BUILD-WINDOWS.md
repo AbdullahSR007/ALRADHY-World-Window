@@ -6,7 +6,9 @@ If Android reports an install conflict, leave the existing installation in place
 
 ## Xiaomi update baseline
 
-The user reported replacing the old installation with the Pictures and download-queue update. The expected installed baseline is `INFINITY-1.1-TV-pictures-update-10004.apk` (`versionCode 10004`). Verify the APK actually installed before publishing the next update. Preserve the downloads and settings created in this installation.
+The installed baseline is `INFINITY-1.1-Android-TV-all-pictures-update-10006.apk` (`versionCode 10006`, `1.1.0-alpha5`). It is signed with a single **Android Debug** certificate, SHA-256 `f2d4cc3e847c93eca2f6024b30ca1acdde1c44a4bddcef78bf585e9c76afc5f8` — the same certificate as builds 10001–10006. The next update, `10007` (`1.1.0-alpha6`), must be signed with that exact key. A freshly generated debug keystore would have a different certificate, and Android would refuse the update. Verify the version actually installed before publishing the next update, and preserve the downloads and settings created in this installation.
+
+To build with that debug key, pass its keystore and alias: `-SigningKeyPath <path>\debug.keystore -SigningKeyAlias androiddebugkey`. The standard debug password is `android`. The script refuses to copy an APK unless its certificate matches the previous APK.
 
 ## Build the update
 
