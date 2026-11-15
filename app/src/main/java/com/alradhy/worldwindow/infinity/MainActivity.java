@@ -89,7 +89,8 @@ public final class MainActivity extends Activity implements CinematicView.Action
             .getBoolean("active",false);
         Intent i=new Intent(this,OfflineDownloadService.class);
         i.setAction(running?OfflineDownloadService.PAUSE:OfflineDownloadService.ALL);
-        startForegroundService(i);
+        if(running)startService(i);
+        else startForegroundService(i);
         Toast.makeText(this,running?"Pausing downloads safely":"Download All started • safe to use other apps",
             Toast.LENGTH_LONG).show();
     }
