@@ -1,5 +1,8 @@
 name: Build INFINITY Android TV APK
 on:
+  push:
+    branches:
+      - feature/infinity-v1
   workflow_dispatch:
 permissions:
   contents: read
