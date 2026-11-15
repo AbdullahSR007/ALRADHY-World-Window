@@ -58,8 +58,14 @@ if (-not $javaHome) {
 if (-not $javaHome) { Fail "Java 17+ not found. Install Android Studio (includes a suitable JDK)." }
 $env:JAVA_HOME = $javaHome
 $env:Path = (Join-Path $javaHome "bin") + ";" + $env:Path
-$javaVersionOutput = (& (Join-Path $javaHome "bin\java.exe") -version 2>&1 | Out-String)
-if ($javaVersionOutput -notmatch 'version "(\d+)(?:\.|")') { Fail "Could not determine Java version: $javaVersionOutput" }
+$oldPreference = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+    $javaVersionOutput = (& (Join-Path $javaHome "bin\java.exe") -version 2>&1 | Out-String)
+} finally {
+    $ErrorActionPreference = $oldPreference
+}
+if (-not ($javaVersionOutput -match 'version "(\d+)(?:\.|")') { Fail "Could not determine Java version: $javaVersionOutput" }
 if ([int]$Matches[1] -lt 17) { Fail "Java 17 or newer required. Found version $($Matches[1])." }
 Note "JDK: $javaHome"
 
