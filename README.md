@@ -1,5 +1,12 @@
 # ALRADHY WORLD WINDOW — INFINITY
 
+## Recommended FREE build — Windows laptop
+
+**No GitHub Actions minutes or payments required.** Build locally with the permanent release signing key. Read [FREE-BUILD-WINDOWS.md](docs/FREE-BUILD-WINDOWS.md) for one-time setup and exact commands. After cloning the private development branch, double-click `scripts/build-free-windows.cmd`; your signed APK will be copied to `Downloads/ALRADHY-APKs/INFINITY` only after a successful local Gradle build.
+
+GitHub Actions is intentionally **manual only** to prevent automatic consumption of the exhausted hosted-runner quota.
+
+
 **Android TV • cinematic world exploration • offline-first • independent repository**
 
 A completely new application. The deleted World Window's code, links and unstable downloads are **not reused**. Source is on `feature/infinity-v1`; `main` is kept as a clean bootstrap until build/device validation.
