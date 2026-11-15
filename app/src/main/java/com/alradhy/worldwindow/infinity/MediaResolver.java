@@ -125,34 +125,30 @@ public final class MediaResolver {
     }
 
     private boolean nasa(Scene s)throws Exception{
-        String search="https://images-api.nasa.gov/search?media_type=video&page_size=12&q="+Uri.encode(s.search);
+        String search="https://images-api.nasa.gov/search?media_type=video&page_size=20&q="+Uri.encode(s.search);
         JSONObject response=readJson(search);
         JSONArray hits=response.optJSONObject("collection")!=null?
             response.getJSONObject("collection").optJSONArray("items"):null;
-        String poster="",nasaId="",title="";
         if(hits!=null)for(int i=0;i<hits.length();i++){
             JSONObject item=hits.optJSONObject(i);if(item==null)continue;
             JSONArray d=item.optJSONArray("data");if(d==null||d.length()==0)continue;
             JSONObject meta=d.optJSONObject(0);if(meta==null)continue;
             String id=meta.optString("nasa_id","");
             if(id.isEmpty())continue;
-            nasaId=id;title=meta.optString("title",s.title);
+            String media="";
+            try{media=chooseNasaAsset(id,true);}catch(Exception ignored){continue;}
+            if(media.isEmpty()||duplicate(media,s))continue;
             JSONArray links=item.optJSONArray("links");
-            if(links!=null&&links.length()>0)
-                poster=links.optJSONObject(0).optString("href","");
-            break;
+            String poster=(links!=null&&links.length()>0)?
+                links.optJSONObject(0).optString("href",""):"";
+            s.mediaUrl=media;s.mime="video/mp4";s.posterUrl=poster;
+            s.sourceUrl="https://images.nasa.gov/details/"+Uri.encode(id);
+            s.credit="NASA • "+meta.optString("title",s.title);
+            s.license="NASA media — check usage guidelines";
+            return true;
         }
-        if(!nasaId.isEmpty()){
-            String media=chooseNasaAsset(nasaId,true);
-            if(!media.isEmpty()){
-                s.mediaUrl=media;s.mime="video/mp4";s.posterUrl=poster;
-                s.sourceUrl="https://images.nasa.gov/details/"+Uri.encode(nasaId);
-                s.credit="NASA • "+title;s.license="NASA media — check usage guidelines";
-                return true;
-            }
-        }
-        // Official NASA still-image fallback, useful when an older video disappears.
-        JSONObject fallback=readJson("https://images-api.nasa.gov/search?media_type=image&page_size=8&q="+Uri.encode(s.search));
+        // NASA video search can yield empty manifests; use original NASA photos as fallback.
+        JSONObject fallback=readJson("https://images-api.nasa.gov/search?media_type=image&page_size=20&q="+Uri.encode(s.search));
         JSONArray items=fallback.optJSONObject("collection")!=null?
             fallback.getJSONObject("collection").optJSONArray("items"):null;
         if(items==null)return false;
@@ -162,7 +158,8 @@ public final class MediaResolver {
             JSONObject metadata=data.optJSONObject(0);if(metadata==null)continue;
             String id=metadata.optString("nasa_id","");
             if(id.isEmpty())continue;
-            String media=chooseNasaAsset(id,false);
+            String media="";
+            try{media=chooseNasaAsset(id,false);}catch(Exception ignored){continue;}
             if(media.isEmpty()||duplicate(media,s))continue;
             JSONArray links=it.optJSONArray("links");
             s.mediaUrl=media;s.posterUrl=(links!=null&&links.length()>0)?
