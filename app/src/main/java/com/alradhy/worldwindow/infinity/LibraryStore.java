@@ -79,6 +79,24 @@ public final class LibraryStore {
         if(!dir.exists())dir.mkdirs();
         return dir;
     }
+    /** Only deletes files inside our own app-scoped media/poster directories. */
+    public synchronized boolean deleteOffline(Scene scene){
+        if(scene==null||scene.downloading)return false;
+        try{
+            File movies=mediaDir().getCanonicalFile();
+            File images=posterDir().getCanonicalFile();
+            if(!scene.localMedia.isEmpty()){
+                File media=new File(scene.localMedia).getCanonicalFile();
+                if(media.getParentFile().equals(movies)&&media.exists()&&!media.delete())return false;
+            }
+            if(!scene.localPoster.isEmpty()){
+                File poster=new File(scene.localPoster).getCanonicalFile();
+                if(poster.getParentFile().equals(images))poster.delete();
+            }
+            scene.localMedia="";scene.localPoster="";scene.bytes=0;scene.total=0;
+            save();return true;
+        }catch(Exception e){return false;}
+    }
     public int offlineCount(){int n=0;for(Scene s:scenes)if(s.isOffline())n++;return n;}
     public long offlineBytes(){
         long n=0;for(Scene s:scenes)if(s.isOffline())n+=new File(s.localMedia).length();
