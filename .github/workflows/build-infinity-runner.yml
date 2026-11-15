@@ -107,12 +107,20 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
-      - name: Build INFINITY debug APK
+      - name: Build INFINITY update APK
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           $ErrorActionPreference = 'Continue'
           Start-Transcript -Path (Join-Path $env:RUNNER_WORKSPACE "..\infinity-ci-run-$($env:GITHUB_RUN_NUMBER).log") -Append | Out-Null
-          gradle --no-daemon :app:assembleDebug
+          # Sign with the key that signed 10001-10006 (kept on the laptop, never in the repo).
+          $key = 'C:\actions-runners\ALRADHY-World-Window\signing\infinity-debug.keystore'
+          if (-not (Test-Path $key)) { throw "Signing key missing at $key" }
+          $env:INFINITY_KEYSTORE_PATH = $key
+          $env:INFINITY_KEY_ALIAS = 'androiddebugkey'
+          $env:INFINITY_STORE_PASS = 'android'
+          $env:INFINITY_KEY_PASS = 'android'
+          $env:INFINITY_STORE_TYPE = 'PKCS12'
+          gradle --no-daemon :app:assembleRelease
           if ($LASTEXITCODE -ne 0) { throw "Gradle build failed: $LASTEXITCODE" }
 
       - name: Verify in-place update compatibility
@@ -121,7 +129,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           Start-Transcript -Path (Join-Path $env:RUNNER_WORKSPACE "..\infinity-ci-run-$($env:GITHUB_RUN_NUMBER).log") -Append | Out-Null
-          $apk = Get-ChildItem app/build/outputs/apk/debug/*.apk | Select-Object -First 1
+          $apk = Get-ChildItem app/build/outputs/apk/release/*.apk | Select-Object -First 1
           if (-not $apk) { throw 'No APK was produced.' }
           $tools = Get-Item (Join-Path $env:ANDROID_HOME 'build-tools\35.0.0') -ErrorAction SilentlyContinue
           if (-not $tools) { $tools = Get-ChildItem (Join-Path $env:ANDROID_HOME 'build-tools') -Directory | Sort-Object Name -Descending | Select-Object -First 1 }
