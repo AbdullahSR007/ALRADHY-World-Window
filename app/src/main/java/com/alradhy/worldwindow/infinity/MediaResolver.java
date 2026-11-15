@@ -213,4 +213,8 @@ public final class MediaResolver {
             }
         }finally{conn.disconnect();}
     }
+    private static final class Candidate {
+        String url="", mime="", poster="", page="", license="", credit="";
+    }
+
 }
