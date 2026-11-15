@@ -49,6 +49,8 @@ jobs:
       - name: Locate Android SDK 36
         shell: powershell
         run: |
+          $ErrorActionPreference = 'Continue'
+          Start-Transcript -Path (Join-Path $env:RUNNER_WORKSPACE "..\infinity-ci-run-$($env:GITHUB_RUN_NUMBER).log") -Append | Out-Null
           $candidates = @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT)
           if ($env:LOCALAPPDATA) { $candidates += (Join-Path $env:LOCALAPPDATA 'Android\Sdk') }
           if ($env:USERPROFILE) { $candidates += (Join-Path $env:USERPROFILE 'AppData\Local\Android\Sdk') }
@@ -58,7 +60,7 @@ jobs:
               ForEach-Object { Join-Path $_.FullName 'AppData\Local\Android\Sdk' })
           }
           $sdk = $candidates | Where-Object {
-            $_ -and (Test-Path (Join-Path $_ 'platforms\android-36\android.jar'))
+            $_ -and (Test-Path (Join-Path $_ 'platforms\android-36\android.jar') -ErrorAction SilentlyContinue)
           } | Select-Object -First 1
           if (-not $sdk) {
             # The runner service (NETWORK SERVICE) cannot read the user's SDK, so keep a private,
@@ -102,6 +104,8 @@ jobs:
       - name: Build INFINITY debug APK
         shell: powershell
         run: |
+          $ErrorActionPreference = 'Continue'
+          Start-Transcript -Path (Join-Path $env:RUNNER_WORKSPACE "..\infinity-ci-run-$($env:GITHUB_RUN_NUMBER).log") -Append | Out-Null
           gradle --no-daemon :app:assembleDebug
           if ($LASTEXITCODE -ne 0) { throw "Gradle build failed: $LASTEXITCODE" }
 
@@ -109,6 +113,8 @@ jobs:
         id: verify
         shell: powershell
         run: |
+          $ErrorActionPreference = 'Continue'
+          Start-Transcript -Path (Join-Path $env:RUNNER_WORKSPACE "..\infinity-ci-run-$($env:GITHUB_RUN_NUMBER).log") -Append | Out-Null
           $apk = Get-ChildItem app/build/outputs/apk/debug/*.apk | Select-Object -First 1
           if (-not $apk) { throw 'No APK was produced.' }
           $tools = Get-Item (Join-Path $env:ANDROID_HOME 'build-tools\35.0.0') -ErrorAction SilentlyContinue
@@ -147,6 +153,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          $ErrorActionPreference = 'Continue'
+          Start-Transcript -Path (Join-Path $env:RUNNER_WORKSPACE "..\infinity-ci-run-$($env:GITHUB_RUN_NUMBER).log") -Append | Out-Null
           $tag = "infinity-${{ steps.verify.outputs.code }}-${{ github.run_number }}"
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
           $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json' }
