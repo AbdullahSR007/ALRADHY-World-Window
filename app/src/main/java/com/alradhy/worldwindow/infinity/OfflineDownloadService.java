@@ -65,7 +65,12 @@ public final class OfflineDownloadService extends Service {
                     try {
                         download(s.mediaUrl,tmp,target,s);
                         if(paused)break;
+                        // Never claim an offline copy unless the final file exists.
+                        if(!target.isFile() || target.length()==0)
+                            throw new IOException("Download did not finalize a complete file");
                         s.localMedia=target.getAbsolutePath();
+                        s.bytes=target.length();
+                        s.total=target.length();
                         s.error="";
                         cachePoster(s);
                         library.save();
@@ -103,6 +108,20 @@ public final class OfflineDownloadService extends Service {
     private void download(String link,File partial,File completed,Scene scene)throws Exception{
         if(!link.startsWith("https://"))throw new IOException("HTTPS required");
         if(completed.exists()&&completed.length()>0)return;
+        // A .part from a different resolved media URL must never be appended to.
+        File origin=new File(partial.getAbsolutePath()+".source");
+        if(partial.isFile() && partial.length()>0){
+            boolean same=false;
+            try(BufferedReader reader=new BufferedReader(new InputStreamReader(
+                    new FileInputStream(origin),java.nio.charset.StandardCharsets.UTF_8))){
+                same=link.equals(reader.readLine());
+            }catch(IOException ignored){/* legacy/unidentified partial: reset safely */}
+            if(!same && !partial.delete())throw new IOException("Cannot reset stale partial");
+        }
+        try(FileOutputStream out=new FileOutputStream(origin)){
+            out.write(link.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            out.getFD().sync();
+        }
         int retries=0;
         while(!paused && retries<3){
             HttpURLConnection conn=null;
@@ -114,11 +133,27 @@ public final class OfflineDownloadService extends Service {
                 conn.setRequestProperty("Accept-Encoding","identity");
                 if(offset>0)conn.setRequestProperty("Range","bytes="+offset+"-");
                 int code=conn.getResponseCode();
-                if(code==416 && offset>0){partial.delete();throw new IOException("Invalid old partial; restarting");}
+                if(code==416 && offset>0){
+                    if(!partial.delete())throw new IOException("Cannot reset rejected range");
+                    throw new IOException("Invalid old partial; restarting");
+                }
                 if(code!=200 && code!=206)throw new IOException("HTTP "+code);
+                // HTTP 206 must start exactly where our local .part ends.
+                // Otherwise an apparently successful download could be corrupt.
+                long responseLength=conn.getContentLengthLong();
+                if(code==206 && !validContentRange(conn.getHeaderField("Content-Range"),offset,responseLength)){
+                    if(partial.exists() && !partial.delete())throw new IOException("Cannot reset invalid range");
+                    throw new IOException("Invalid Content-Range; restarting");
+                }
+                String contentType=conn.getContentType();
+                if(contentType!=null){
+                    String type=contentType.toLowerCase(java.util.Locale.ROOT);
+                    if(type.startsWith("text/")||type.contains("json")||type.contains("xml"))
+                        throw new IOException("Unexpected media response type: "+type);
+                }
                 boolean append=offset>0 && code==206;
                 if(!append)offset=0;
-                long remaining=conn.getContentLengthLong();
+                long remaining=responseLength;
                 long expected=remaining>0?remaining+offset:0;
                 if(remaining>0){
                     StatFs stat=new StatFs(library.mediaDir().getAbsolutePath());
@@ -141,20 +176,42 @@ public final class OfflineDownloadService extends Service {
                     }
                     if(paused)return;
                     out.getFD().sync();
+                    if(done<=0)throw new EOFException("Empty media response");
                     if(expected>0 && done!=expected)throw new EOFException("Incomplete "+done+"/"+expected);
                 }
                 if(completed.exists()&&!completed.delete())throw new IOException("Cannot replace file");
                 if(!partial.renameTo(completed))throw new IOException("Cannot finalize file");
+                origin.delete();
                 return;
             }catch(IOException e){
                 retries++;
                 if(retries>=3)throw e;
                 try{Thread.sleep(1200L*retries);}catch(InterruptedException interrupted){
-                    Thread.currentThread().interrupt();return;
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Download interrupted",interrupted);
                 }
             }finally{if(conn!=null)conn.disconnect();}
         }
     }
+    /** Validates a byte-range response before appending it to the local partial. */
+    private static boolean validContentRange(String header,long start,long bodyLength){
+        if(header==null || !header.startsWith("bytes "))return false;
+        int dash=header.indexOf('-',6);
+        int slash=header.indexOf('/',dash+1);
+        if(dash<7 || slash<=dash+1)return false;
+        try{
+            long first=Long.parseLong(header.substring(6,dash));
+            long last=Long.parseLong(header.substring(dash+1,slash));
+            String total=header.substring(slash+1).trim();
+            if(first!=start || last<first)return false;
+            if(!"*".equals(total)){
+                long size=Long.parseLong(total);
+                if(size<=last || size<=start)return false;
+            }
+            return bodyLength<=0 || bodyLength==last-first+1;
+        }catch(NumberFormatException e){return false;}
+    }
+
     private void cachePoster(Scene s){
         if(s.posterUrl.isEmpty()||paused)return;
         File target=new File(library.posterDir(),s.id+".jpg");
