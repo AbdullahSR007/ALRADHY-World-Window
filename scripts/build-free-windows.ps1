@@ -65,7 +65,7 @@ try {
 } finally {
     $ErrorActionPreference = $oldPreference
 }
-if (-not ($javaVersionOutput -match 'version "(\d+)(?:\.|")') { Fail "Could not determine Java version: $javaVersionOutput" }
+if (-not ($javaVersionOutput -match 'version "(\d+)(?:\.|")')) { Fail "Could not determine Java version: $javaVersionOutput" }
 if ([int]$Matches[1] -lt 17) { Fail "Java 17 or newer required. Found version $($Matches[1])." }
 Note "JDK: $javaHome"
 
