@@ -16,7 +16,7 @@ android {
         }
     }
     namespace 'com.alradhy.worldwindow.infinity'
-    compileSdk 35
+    compileSdk 36
     defaultConfig {
         applicationId 'com.alradhy.worldwindow.infinity'
         minSdk 26
