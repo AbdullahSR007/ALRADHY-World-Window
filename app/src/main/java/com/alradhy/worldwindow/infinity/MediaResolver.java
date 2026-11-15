@@ -56,7 +56,9 @@ public final class MediaResolver {
             +"&iiurlwidth=1280&format=json&formatversion=2&gsrsearch=";
         // Prefer landscape images as a reliable first-run experience, and playable clips when found.
         Candidate photo=pickCommons(endpoint+Uri.encode(s.search),s,false);
-        Candidate video=pickCommons(endpoint+Uri.encode(s.search+" filetype:video"),s,true);
+        Candidate video=null;
+        try{video=pickCommons(endpoint+Uri.encode(s.search+" filetype:video"),s,true);}
+        catch(Exception ignored){/* photographic fallback remains usable */}
         if(photo==null && video==null)return false;
         Candidate selected=video!=null ? video : photo;
         s.mediaUrl=selected.url;s.mime=selected.mime;s.sourceUrl=selected.page;
