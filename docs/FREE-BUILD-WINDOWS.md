@@ -5,7 +5,7 @@ No GitHub Actions, no billing, no paid runners. The first build downloads depend
 ## One-time prerequisites
 
 Install [Android Studio](https://developer.android.com/studio) (free). In Android Studio **Tools → SDK Manager**, ensure:
-- Android SDK Platform 35 (Android 15 / API 35)
+- Android SDK Platform 36 (Android 16 / API 36)
 - Android SDK Build-Tools 35.0.0
 - Android SDK Platform-Tools (optional for ADB install)
 
