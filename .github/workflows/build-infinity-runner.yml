@@ -33,7 +33,7 @@ jobs:
     timeout-minutes: 50
     defaults:
       run:
-        shell: pwsh
+        shell: powershell
     steps:
       - name: Checkout isolated INFINITY branch
         uses: actions/checkout@v4
@@ -47,7 +47,7 @@ jobs:
           java-version: '17'
 
       - name: Locate Android SDK 36
-        shell: pwsh
+        shell: powershell
         run: |
           $candidates = @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT)
           if ($env:LOCALAPPDATA) { $candidates += (Join-Path $env:LOCALAPPDATA 'Android\Sdk') }
@@ -67,6 +67,8 @@ jobs:
             $sdkmanager = Join-Path $sdk 'cmdline-tools\latest\bin\sdkmanager.bat'
             if (-not (Test-Path $sdkmanager)) {
               Write-Host 'Installing Android command-line tools for the runner (one time)...'
+              $ProgressPreference = 'SilentlyContinue'
+              [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
               New-Item -ItemType Directory -Force -Path $sdk | Out-Null
               $zip = Join-Path $env:RUNNER_TEMP 'cmdline-tools.zip'
               Invoke-WebRequest 'https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip' -OutFile $zip
@@ -88,8 +90,8 @@ jobs:
           Write-Host "Runner account: $env:USERNAME   Android SDK: $sdk"
           $debugKey = Join-Path $env:USERPROFILE '.android\debug.keystore'
           Write-Host "Debug keystore for this account: $debugKey  exists=$(Test-Path $debugKey)"
-          "ANDROID_HOME=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "ANDROID_SDK_ROOT=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "ANDROID_HOME=$sdk`n")
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "ANDROID_SDK_ROOT=$sdk`n")
           Write-Host 'Android SDK platform 36 detected.'
 
       - name: Setup Gradle 8.11.1
@@ -98,14 +100,14 @@ jobs:
           gradle-version: '8.11.1'
 
       - name: Build INFINITY debug APK
-        shell: pwsh
+        shell: powershell
         run: |
           gradle --no-daemon :app:assembleDebug
           if ($LASTEXITCODE -ne 0) { throw "Gradle build failed: $LASTEXITCODE" }
 
       - name: Verify in-place update compatibility
         id: verify
-        shell: pwsh
+        shell: powershell
         run: |
           $apk = Get-ChildItem app/build/outputs/apk/debug/*.apk | Select-Object -First 1
           if (-not $apk) { throw 'No APK was produced.' }
@@ -127,9 +129,9 @@ jobs:
           if ($code -le [int]$env:INFINITY_INSTALLED_VERSION) { throw "versionCode $code must exceed $env:INFINITY_INSTALLED_VERSION" }
           $out = "INFINITY-$name-Android-TV-update-$code.apk"
           Copy-Item $apk.FullName $out
-          "file=$out" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "code=$code" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "name=$name" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "file=$out`n")
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "code=$code`n")
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "name=$name`n")
           Write-Host "VERIFIED: same app ID, same certificate, versionCode $code > $env:INFINITY_INSTALLED_VERSION"
 
       - name: Upload verified APK
@@ -141,11 +143,12 @@ jobs:
           retention-days: 14
 
       - name: Publish verified APK as a pre-release
-        shell: pwsh
+        shell: powershell
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = "infinity-${{ steps.verify.outputs.code }}-${{ github.run_number }}"
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
           $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json' }
           $body = @{ tag_name = $tag; target_commitish = '${{ github.sha }}'; prerelease = $true
             name = "INFINITY ${{ steps.verify.outputs.name }} (${{ steps.verify.outputs.code }})"
