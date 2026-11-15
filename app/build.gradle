@@ -1,0 +1,27 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.alradhy.worldwindow.infinity'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.alradhy.worldwindow.infinity'
+        minSdk 26
+        targetSdk 34
+        versionCode 10001
+        versionName '1.0.0-alpha1'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildTypes {
+        release { minifyEnabled false }
+        debug { applicationIdSuffix '' }
+    }
+    packaging { resources { excludes += ['/META-INF/{AL2.0,LGPL2.1}'] } }
+}
+
+dependencies {
+    implementation 'androidx.media3:media3-exoplayer:1.11.1'
+    implementation 'androidx.media3:media3-ui:1.11.1'
+}
