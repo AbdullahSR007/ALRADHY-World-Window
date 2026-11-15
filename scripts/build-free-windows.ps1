@@ -33,7 +33,7 @@ foreach ($candidate in $sdkCandidates) {
 if (-not $sdk) {
     Fail "Android SDK not found. Install free Android Studio and SDK Platform 35 (Tools > SDK Manager), then run again."
 }
-if (-not (Test-Path (Join-Path $sdk "platforms\android-35\android.jar"))) {
+if (-not (Test-Path (Join-Path $sdk "platforms\android-36\android.jar"))) {
     Fail "Android SDK Platform 35 is missing. In Android Studio > SDK Manager install Android 15 (API 35), then run again."
 }
 if (-not (Test-Path (Join-Path $sdk "build-tools\35.0.0\aapt2.exe"))) {
