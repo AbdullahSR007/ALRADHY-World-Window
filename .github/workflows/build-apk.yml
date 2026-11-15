@@ -1,10 +1,11 @@
 name: Build INFINITY Android TV APK
 on:
-  push:
-    branches: [main, feature/infinity-v1]
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: infinity-apk-build
+  cancel-in-progress: true
 jobs:
   android:
     runs-on: ubuntu-latest
@@ -48,5 +49,5 @@ jobs:
         with:
           name: ALRADHY-World-Window-INFINITY-APK
           path: app/build/outputs/apk/**/*.apk
-          retention-days: 30
+          retention-days: 2
           if-no-files-found: error
