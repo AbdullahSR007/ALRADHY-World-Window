@@ -1,4 +1,4 @@
-name: INFINITY - Windows Self-Hosted Build Check
+name: INFINITY - Windows Self-Hosted Update APK
 
 on:
   push:
@@ -13,7 +13,13 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+env:
+  # Certificate of the APK installed on the TV (builds 10001-10006). An APK signed with any
+  # other key would force an uninstall and lose downloads, so it is never published.
+  INFINITY_EXPECTED_CERT: f2d4cc3e847c93eca2f6024b30ca1acdde1c44a4bddcef78bf585e9c76afc5f8
+  INFINITY_INSTALLED_VERSION: '10006'
 
 concurrency:
   group: infinity-self-hosted-debug
@@ -66,8 +72,61 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
-      - name: Check INFINITY compilation
+      - name: Build INFINITY debug APK
         shell: pwsh
         run: |
-          gradle --no-daemon :app:compileDebugJavaWithJavac
+          gradle --no-daemon :app:assembleDebug
           if ($LASTEXITCODE -ne 0) { throw "Gradle build failed: $LASTEXITCODE" }
+
+      - name: Verify in-place update compatibility
+        id: verify
+        shell: pwsh
+        run: |
+          $apk = Get-ChildItem app/build/outputs/apk/debug/*.apk | Select-Object -First 1
+          if (-not $apk) { throw 'No APK was produced.' }
+          $tools = Get-ChildItem (Join-Path $env:ANDROID_HOME 'build-tools') -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          $badging = & (Join-Path $tools.FullName 'aapt.exe') dump badging $apk.FullName
+          $line = $badging | Where-Object { $_ -like 'package: *' } | Select-Object -First 1
+          if ($line -notmatch "name='([^']+)' versionCode='([0-9]+)' versionName='([^']*)'") { throw 'Unreadable manifest.' }
+          $id = $Matches[1]; $code = [int]$Matches[2]; $name = $Matches[3]
+          $certs = @(& (Join-Path $tools.FullName 'apksigner.bat') verify --print-certs $apk.FullName |
+            ForEach-Object { if ($_ -match 'certificate SHA-256 digest: ([0-9a-f]{64})') { $Matches[1] } })
+          Write-Host "Package $id  versionCode $code ($name)"
+          Write-Host "Signing certificate SHA-256: $($certs -join ', ')"
+          Write-Host "Runner account: $env:USERNAME  profile: $env:USERPROFILE"
+          if ($id -cne 'com.alradhy.worldwindow.infinity') { throw "Application ID changed: $id" }
+          if ($certs.Count -ne 1 -or $certs[0] -ne $env:INFINITY_EXPECTED_CERT) {
+            throw "HELD: signed with $($certs -join ', '), not the installed app's certificate. Android would refuse this update."
+          }
+          if ($code -le [int]$env:INFINITY_INSTALLED_VERSION) { throw "versionCode $code must exceed $env:INFINITY_INSTALLED_VERSION" }
+          $out = "INFINITY-$name-Android-TV-update-$code.apk"
+          Copy-Item $apk.FullName $out
+          "file=$out" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "code=$code" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "name=$name" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "VERIFIED: same app ID, same certificate, versionCode $code > $env:INFINITY_INSTALLED_VERSION"
+
+      - name: Upload verified APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: INFINITY-update-${{ steps.verify.outputs.code }}
+          path: ${{ steps.verify.outputs.file }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish verified APK as a pre-release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "infinity-${{ steps.verify.outputs.code }}-${{ github.run_number }}"
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json' }
+          $body = @{ tag_name = $tag; target_commitish = '${{ github.sha }}'; prerelease = $true
+            name = "INFINITY ${{ steps.verify.outputs.name }} (${{ steps.verify.outputs.code }})"
+            body = "Verified in-place update: same app ID and signing certificate, versionCode ${{ steps.verify.outputs.code }}." } | ConvertTo-Json
+          $release = Invoke-RestMethod -Method Post -Headers $headers -Body $body -ContentType 'application/json' `
+            -Uri "https://api.github.com/repos/${{ github.repository }}/releases"
+          $file = '${{ steps.verify.outputs.file }}'
+          $upload = $release.upload_url -replace '\{.*\}', "?name=$file"
+          Invoke-RestMethod -Method Post -Headers $headers -InFile $file -ContentType 'application/vnd.android.package-archive' -Uri $upload | Out-Null
+          Write-Host "Published $tag"
