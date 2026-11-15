@@ -21,11 +21,32 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+      - name: Restore optional stable release signing
+        env:
+          INFINITY_KEYSTORE_B64: ${{ secrets.INFINITY_KEYSTORE_B64 }}
+        shell: bash
+        run: |
+          if [ -n "$INFINITY_KEYSTORE_B64" ]; then
+            printf '%s' "$INFINITY_KEYSTORE_B64" | base64 --decode > app/infinity-signing.jks
+            echo "INFINITY_SIGNED=true" >> "$GITHUB_ENV"
+          fi
       - name: Build APK
-        run: gradle --no-daemon :app:assembleDebug
+        env:
+          INFINITY_KEYSTORE_PATH: ${{ github.workspace }}/app/infinity-signing.jks
+          INFINITY_STORE_PASS: ${{ secrets.INFINITY_STORE_PASS }}
+          INFINITY_KEY_ALIAS: ${{ secrets.INFINITY_KEY_ALIAS }}
+          INFINITY_KEY_PASS: ${{ secrets.INFINITY_KEY_PASS }}
+        shell: bash
+        run: |
+          if [ -f app/infinity-signing.jks ]; then
+            gradle --no-daemon :app:assembleRelease
+          else
+            echo "::warning::No stable signing secrets: building experimental debug APK; updates may require uninstall."
+            gradle --no-daemon :app:assembleDebug
+          fi
       - uses: actions/upload-artifact@v4
         with:
-          name: ALRADHY-World-Window-INFINITY-v1-alpha
-          path: app/build/outputs/apk/debug/*.apk
+          name: ALRADHY-World-Window-INFINITY-APK
+          path: app/build/outputs/apk/**/*.apk
           retention-days: 30
           if-no-files-found: error
