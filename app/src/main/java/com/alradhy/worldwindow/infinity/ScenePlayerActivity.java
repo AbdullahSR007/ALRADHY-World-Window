@@ -59,7 +59,7 @@ public final class ScenePlayerActivity extends Activity {
         root=new FrameLayout(this);root.setBackgroundColor(0xff050f18);
         photo=new ImageView(this);photo.setScaleType(ImageView.ScaleType.CENTER_CROP);
         root.addView(photo,new FrameLayout.LayoutParams(-1,-1));
-        playerView=new PlayerView(this);playerView.setUseController(true);
+        playerView=new PlayerView(this);playerView.setFocusable(false);playerView.setFocusableInTouchMode(false);playerView.setUseController(true);
         playerView.setControllerAutoShow(false);playerView.setControllerShowTimeoutMs(3500);
         root.addView(playerView,new FrameLayout.LayoutParams(-1,-1));
         View shade=new View(this);
@@ -79,7 +79,7 @@ public final class ScenePlayerActivity extends Activity {
         FrameLayout.LayoutParams clockP=new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.RIGHT);
         clockP.setMargins(0,dp(36),dp(58),0);
         root.addView(clock,clockP);
-        setContentView(root);
+        root.setFocusableInTouchMode(true);setContentView(root);root.requestFocus();
     }
     private TextView text(int sp,int color,boolean strong){
         TextView t=new TextView(this);t.setTextColor(color);t.setTextSize(sp);
