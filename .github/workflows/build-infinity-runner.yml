@@ -61,8 +61,33 @@ jobs:
             $_ -and (Test-Path (Join-Path $_ 'platforms\android-36\android.jar'))
           } | Select-Object -First 1
           if (-not $sdk) {
-            throw 'Android SDK platform 36 is missing or not visible to this runner service. Install Android SDK Platform 36 in Android Studio (SDK Manager), then rerun.'
+            # The runner service (NETWORK SERVICE) cannot read the user's SDK, so keep a private,
+            # cached SDK in the runner's tool cache. Downloaded once; later builds reuse it.
+            $sdk = Join-Path $env:RUNNER_TOOL_CACHE 'android-sdk'
+            $sdkmanager = Join-Path $sdk 'cmdline-tools\latest\bin\sdkmanager.bat'
+            if (-not (Test-Path $sdkmanager)) {
+              Write-Host 'Installing Android command-line tools for the runner (one time)...'
+              New-Item -ItemType Directory -Force -Path $sdk | Out-Null
+              $zip = Join-Path $env:RUNNER_TEMP 'cmdline-tools.zip'
+              Invoke-WebRequest 'https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip' -OutFile $zip
+              $unpack = Join-Path $env:RUNNER_TEMP 'cmdline-unpack'
+              Remove-Item $unpack -Recurse -Force -ErrorAction SilentlyContinue
+              Expand-Archive $zip -DestinationPath $unpack -Force
+              New-Item -ItemType Directory -Force -Path (Join-Path $sdk 'cmdline-tools') | Out-Null
+              Move-Item (Join-Path $unpack 'cmdline-tools') (Join-Path $sdk 'cmdline-tools\latest')
+            }
+            if (-not (Test-Path (Join-Path $sdk 'platforms\android-36\android.jar')) -or
+                -not (Test-Path (Join-Path $sdk 'build-tools\35.0.0\apksigner.bat'))) {
+              Write-Host 'Installing Android SDK Platform 36 and Build-Tools 35.0.0 (one time)...'
+              (1..40 | ForEach-Object { 'y' }) | & $sdkmanager --sdk_root=$sdk --licenses | Out-Null
+              & $sdkmanager --sdk_root=$sdk 'platforms;android-36' 'build-tools;35.0.0'
+              if ($LASTEXITCODE -ne 0) { throw "sdkmanager failed: $LASTEXITCODE" }
+            }
+            if (-not (Test-Path (Join-Path $sdk 'platforms\android-36\android.jar'))) { throw 'Android SDK Platform 36 could not be installed.' }
           }
+          Write-Host "Runner account: $env:USERNAME   Android SDK: $sdk"
+          $debugKey = Join-Path $env:USERPROFILE '.android\debug.keystore'
+          Write-Host "Debug keystore for this account: $debugKey  exists=$(Test-Path $debugKey)"
           "ANDROID_HOME=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "ANDROID_SDK_ROOT=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host 'Android SDK platform 36 detected.'
@@ -84,7 +109,8 @@ jobs:
         run: |
           $apk = Get-ChildItem app/build/outputs/apk/debug/*.apk | Select-Object -First 1
           if (-not $apk) { throw 'No APK was produced.' }
-          $tools = Get-ChildItem (Join-Path $env:ANDROID_HOME 'build-tools') -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          $tools = Get-Item (Join-Path $env:ANDROID_HOME 'build-tools\35.0.0') -ErrorAction SilentlyContinue
+          if (-not $tools) { $tools = Get-ChildItem (Join-Path $env:ANDROID_HOME 'build-tools') -Directory | Sort-Object Name -Descending | Select-Object -First 1 }
           $badging = & (Join-Path $tools.FullName 'aapt.exe') dump badging $apk.FullName
           $line = $badging | Where-Object { $_ -like 'package: *' } | Select-Object -First 1
           if ($line -notmatch "name='([^']+)' versionCode='([0-9]+)' versionName='([^']*)'") { throw 'Unreadable manifest.' }
