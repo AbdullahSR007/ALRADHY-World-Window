@@ -33,7 +33,7 @@ jobs:
     timeout-minutes: 50
     defaults:
       run:
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
       - name: Checkout isolated INFINITY branch
         uses: actions/checkout@v4
@@ -47,7 +47,7 @@ jobs:
           java-version: '17'
 
       - name: Locate Android SDK 36
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           $ErrorActionPreference = 'Continue'
           Start-Transcript -Path (Join-Path $env:RUNNER_WORKSPACE "..\infinity-ci-run-$($env:GITHUB_RUN_NUMBER).log") -Append | Out-Null
@@ -102,7 +102,7 @@ jobs:
           gradle-version: '8.11.1'
 
       - name: Build INFINITY debug APK
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           $ErrorActionPreference = 'Continue'
           Start-Transcript -Path (Join-Path $env:RUNNER_WORKSPACE "..\infinity-ci-run-$($env:GITHUB_RUN_NUMBER).log") -Append | Out-Null
@@ -111,7 +111,7 @@ jobs:
 
       - name: Verify in-place update compatibility
         id: verify
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         run: |
           $ErrorActionPreference = 'Continue'
           Start-Transcript -Path (Join-Path $env:RUNNER_WORKSPACE "..\infinity-ci-run-$($env:GITHUB_RUN_NUMBER).log") -Append | Out-Null
@@ -149,7 +149,7 @@ jobs:
           retention-days: 14
 
       - name: Publish verified APK as a pre-release
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
