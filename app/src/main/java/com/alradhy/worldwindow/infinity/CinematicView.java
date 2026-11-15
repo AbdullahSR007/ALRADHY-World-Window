@@ -164,7 +164,7 @@ public final class CinematicView extends View {
         boolean downloading=getContext().getSharedPreferences("infinity_downloads",Context.MODE_PRIVATE)
             .getBoolean("active",false);
         action(c,0,1404,438,"▶    EXPLORE NOW",false);
-        action(c,1,1404,526,s.isOffline()?"✓    SAVED TO DEVICE":"↓    SAVE THIS SCENE",false);
+        action(c,1,1404,526,s.isOffline()?"×    REMOVE OFFLINE COPY":"↓    SAVE THIS SCENE",false);
         action(c,2,1404,614,downloading?"Ⅱ    PAUSE DOWNLOADS":"⇩    DOWNLOAD ALL 100",true);
         label(c,s.status(),1408,703,18,s.isOffline()?0xff91e0c4:0xffb9ccd0,medium,false);
     }
