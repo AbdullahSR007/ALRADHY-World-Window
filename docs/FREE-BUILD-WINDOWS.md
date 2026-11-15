@@ -1,75 +1,27 @@
-# Build INFINITY for FREE on a Windows laptop
+# Build an INFINITY update on Windows
 
-No GitHub Actions, no billing, no paid runners. The first build downloads dependencies, but future builds reuse them.
+Every APK delivered for installation, including a test APK, must update the installed app in place. Keep the application ID and signing certificate, increase the version code, and preserve downloaded media and settings. Leave the installed app and its data in place during development. A device installation requires explicit approval.
 
-## One-time prerequisites
+If Android reports an install conflict, leave the existing installation in place. Read the installed package, version and certificate from the device, compare them against the exact file being opened, and capture the installer error before attempting a fix.
 
-Install [Android Studio](https://developer.android.com/studio) (free). In Android Studio **Tools → SDK Manager**, ensure:
-- Android SDK Platform 36 (Android 16 / API 36)
-- Android SDK Build-Tools 35.0.0
-- Android SDK Platform-Tools (optional for ADB install)
+## Xiaomi update baseline
 
-Android Studio includes a suitable JDK; the builder also accepts JDK 17+ installed separately.
+The user reported replacing the old installation with the Pictures and download-queue update. The expected installed baseline is `INFINITY-1.1-TV-pictures-update-10004.apk` (`versionCode 10004`). Verify the APK actually installed before publishing the next update. Preserve the downloads and settings created in this installation.
 
-If Git and GitHub CLI are missing, in Windows Terminal / PowerShell:
+## Build the update
 
-```powershell
-winget install --id Git.Git -e
-winget install --id GitHub.cli -e
-```
+Use JDK 17+, Android SDK Platform 36 and Build Tools 35.0.0. The script caches Gradle 8.11.1 or accepts an existing installation through `-GradlePath`.
 
-Restart Terminal afterwards. Sign in to access this **private** repository:
+Open the isolated INFINITY development checkout and run:
 
 ```powershell
-gh auth login
+.\scripts\build-free-windows.cmd -PreviousApk 'C:\path\to\installed-version.apk' -SigningKeyPath 'C:\path\to\existing-signing-key.p12'
 ```
 
-## First build (PowerShell)
+The previous APK must correspond to the version currently installed on the TV. If you omit its path, the script prompts for it. If you omit the signing key path, the script uses `INFINITY_KEYSTORE_PATH` or checks the original builder's location under `%LOCALAPPDATA%\ALRADHY\INFINITY\PRIVATE-SIGNING`. The script prompts locally for the existing password without echoing it.
 
-```powershell
-cd "$HOME\Documents"
-gh repo clone AbdullahSR007/ALRADHY-World-Window -- --branch feature/infinity-v1
-cd .\ALRADHY-World-Window
-.\scripts\build-free-windows.cmd
-```
+The script verifies the previous APK with Android Build Tools and checks the key's public certificate before starting Gradle. It copies the candidate to `Downloads\ALRADHY-APKs\INFINITY` only when the package ID and signing certificate match and the version code increases. Keep the original signing key private.
 
-On the first build, the script downloads and caches official Gradle 8.11.1, verifies Android SDK and JDK, and asks for a **new signing password with at least 12 characters**. It creates the permanent signing certificate in:
+## Android TV checks before release
 
-```text
-%LOCALAPPDATA%\ALRADHY\INFINITY\PRIVATE-SIGNING\infinity-release.p12
-```
-
-**Back up this key securely outside the laptop.** Future builds must use the **same key and password**, or Android will reject updates without uninstall. The key is never committed to GitHub. Do not share the key or password.
-
-If the build succeeds, APK is copied to:
-
-```text
-%USERPROFILE%\Downloads\ALRADHY-APKs\INFINITY\ALRADHY-World-Window-INFINITY-v1.0.0-alpha1.apk
-```
-
-This is a **release-signed** APK with the stable application ID `com.alradhy.worldwindow.infinity`. No payment or GitHub Actions quota is consumed.
-
-## Subsequent builds
-
-```powershell
-cd "$HOME\Documents\ALRADHY-World-Window"
-git checkout feature/infinity-v1
-git pull --ff-only
-.\scripts\build-free-windows.cmd
-```
-
-Enter the **same signing password**. Source updates must increase `versionCode` for Android to accept updates.
-
-## Failure messages
-
-- Missing SDK 35 or Build Tools 35: install them via Android Studio SDK Manager.
-- Java missing: install Android Studio or JDK 17+.
-- Incorrect password: enter your original password; **never delete the existing .p12 file**.
-- Failed Gradle compilation: copy the **first useful error** from the console; no APK should be claimed until Gradle reports BUILD SUCCESSFUL.
-- Network/timeouts: retry; portable Gradle and downloaded dependencies cache locally.
-
-## Notes
-
-No change to the GitHub repository's privacy. GitHub Actions remains **manual only** and is not needed for this build. A source-code checkout and local dependency downloads are free. The user's own data/internet usage is not part of GitHub billing.
-
-The Android app's catalog lists 100 topics but **does not bundle 100 guaranteed 4K videos**. Test sources and offline download behavior on the Xiaomi TV Box before a production baseline.
+Confirm the app card appears in the TV launcher, the remote reaches the playback and download controls, and the previously saved library is still available. A compilation or APK signature check alone cannot verify these device behaviors.

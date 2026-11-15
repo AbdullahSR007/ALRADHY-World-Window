@@ -1,6 +1,11 @@
 # ALRADHY INFINITY - FREE offline-ready APK builder for Windows
-# Run from the cloned repository: powershell -ExecutionPolicy Bypass -File .\scripts\build-free-windows.ps1
-# Needs Android Studio + SDK Platform 35; GitHub Actions, paid runners, and payments are not used.
+# Build an update against the APK currently installed on the TV.
+param(
+    [string]$PreviousApk,
+    [string]$SigningKeyPath = $env:INFINITY_KEYSTORE_PATH,
+    [string]$SigningKeyAlias = $env:INFINITY_KEY_ALIAS,
+    [string]$GradlePath
+)
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
@@ -11,6 +16,10 @@ function Fail([string]$message) {
 }
 
 function Note([string]$message) { Write-Host "[INFINITY] $message" -ForegroundColor Cyan }
+
+if (-not $PreviousApk) { $PreviousApk = Read-Host "Path to the APK currently installed on the TV" }
+if (-not (Test-Path -LiteralPath $PreviousApk -PathType Leaf)) { Fail "The installed version's APK is required." }
+$PreviousApk = (Resolve-Path -LiteralPath $PreviousApk).Path
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 if (-not (Test-Path (Join-Path $root "app\build.gradle"))) {
@@ -31,10 +40,10 @@ foreach ($candidate in $sdkCandidates) {
     if (Test-Path (Join-Path $candidate "platforms")) { $sdk = (Resolve-Path $candidate).Path; break }
 }
 if (-not $sdk) {
-    Fail "Android SDK not found. Install free Android Studio and SDK Platform 35 (Tools > SDK Manager), then run again."
+    Fail "Android SDK not found. Install Android SDK Platform 36, then run again."
 }
 if (-not (Test-Path (Join-Path $sdk "platforms\android-36\android.jar"))) {
-    Fail "Android SDK Platform 35 is missing. In Android Studio > SDK Manager install Android 15 (API 35), then run again."
+    Fail "Android SDK Platform 36 is missing. Select API 36 in Android Studio SDK Manager."
 }
 if (-not (Test-Path (Join-Path $sdk "build-tools\35.0.0\aapt2.exe"))) {
     $installed = Get-ChildItem (Join-Path $sdk "build-tools") -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
@@ -44,6 +53,44 @@ if (-not (Test-Path (Join-Path $sdk "build-tools\35.0.0\aapt2.exe"))) {
 $env:ANDROID_HOME = $sdk
 $env:ANDROID_SDK_ROOT = $sdk
 Note "Android SDK: $sdk"
+$aapt = Join-Path $sdk "build-tools\35.0.0\aapt.exe"
+$apksigner = Join-Path $sdk "build-tools\35.0.0\apksigner.bat"
+
+function Read-ApkIdentity([string]$Path) {
+    $badging = & $aapt dump badging $Path
+    if ($LASTEXITCODE -ne 0) { throw "Could not read the APK manifest." }
+    $packageLine = $badging | Where-Object { $_ -like "package: *" } | Select-Object -First 1
+    if ($packageLine -notmatch "^package: name='([^']+)' versionCode='([0-9]+)'") {
+        throw "The APK does not declare a readable package name and version code."
+    }
+    $applicationId = $Matches[1]
+    $versionCode = [long]$Matches[2]
+    $verification = & $apksigner verify --print-certs $Path
+    if ($LASTEXITCODE -ne 0) { throw "APK signature verification failed." }
+    $signers = @(foreach ($line in $verification) {
+        if ($line -match '^Signer #\d+ certificate SHA-256 digest: ([0-9a-f]{64})$') { $Matches[1] }
+    })
+    if ($signers.Count -ne 1) { throw "Expected exactly one APK signing certificate." }
+    [pscustomobject]@{ ApplicationId = $applicationId; VersionCode = $versionCode; Certificate = $signers[0] }
+}
+
+function Assert-ApkUpdate($Previous, $Candidate) {
+    if ($Candidate.ApplicationId -cne $Previous.ApplicationId) { throw "The application ID changed." }
+    if ($Candidate.Certificate -ne $Previous.Certificate) { throw "The signing certificate differs from the installed version." }
+    if ($Candidate.VersionCode -le $Previous.VersionCode) { throw "The update's version code must exceed the installed version." }
+}
+
+function Read-KeyCertificate([string]$KeyTool, [string]$Path, [string]$Alias) {
+    $pem = & $KeyTool -exportcert -rfc -storetype PKCS12 -keystore $Path -alias $Alias -storepass:env INFINITY_STORE_PASS
+    if ($LASTEXITCODE -ne 0) { throw "Could not read the certificate for the existing signing key." }
+    $der = [Convert]::FromBase64String(($pem | Where-Object { $_ -notmatch '^-----' }) -join '')
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        return [BitConverter]::ToString($sha.ComputeHash($der)).Replace('-', '').ToLowerInvariant()
+    } finally {
+        $sha.Dispose()
+    }
+}
 
 $studioJava = Join-Path $env:ProgramFiles "Android\Android Studio\jbr"
 $javaCandidates = @($env:JAVA_HOME, $studioJava) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
@@ -69,11 +116,24 @@ if (-not ($javaVersionOutput -match 'version "(\d+)(?:\.|")')) { Fail "Could not
 if ([int]$Matches[1] -lt 17) { Fail "Java 17 or newer required. Found version $($Matches[1])." }
 Note "JDK: $javaHome"
 
+$previous = Read-ApkIdentity $PreviousApk
+if ($previous.ApplicationId -cne 'com.alradhy.worldwindow.infinity') { Fail "Select the installed INFINITY APK." }
+if (-not $SigningKeyPath) {
+    $SigningKeyPath = Join-Path $localAppData "ALRADHY\INFINITY\PRIVATE-SIGNING\infinity-release.p12"
+}
+if (-not (Test-Path -LiteralPath $SigningKeyPath -PathType Leaf)) { Fail "The existing INFINITY signing key is required." }
+$key = (Resolve-Path -LiteralPath $SigningKeyPath).Path
+if (-not $SigningKeyAlias) { $SigningKeyAlias = 'infinity' }
+
 # Portable Gradle: downloaded once and reused. Nothing is installed system-wide.
 $gradleVersion = "8.11.1"
 $toolchain = Join-Path $localAppData "ALRADHY\INFINITY\toolchain"
 $gradleDir = Join-Path $toolchain ("gradle-" + $gradleVersion)
 $gradleExe = Join-Path $gradleDir "bin\gradle.bat"
+if ($GradlePath) {
+    if (-not (Test-Path -LiteralPath $GradlePath -PathType Leaf)) { Fail "The specified Gradle executable does not exist." }
+    $gradleExe = (Resolve-Path -LiteralPath $GradlePath).Path
+}
 if (-not (Test-Path $gradleExe)) {
     New-Item -ItemType Directory -Force -Path $toolchain | Out-Null
     $zip = Join-Path $toolchain ("gradle-" + $gradleVersion + "-bin.zip")
@@ -86,18 +146,7 @@ if (-not (Test-Path $gradleExe)) {
 }
 if (-not (Test-Path $gradleExe)) { Fail "Gradle executable unavailable: $gradleExe" }
 
-# Release key stays on the laptop, outside the repo, and is reused for every APK update.
-$private = Join-Path $localAppData "ALRADHY\INFINITY\PRIVATE-SIGNING"
-$key = Join-Path $private "infinity-release.p12"
-New-Item -ItemType Directory -Force -Path $private | Out-Null
-Write-Host ""
-if (Test-Path $key) {
-    Note "Using EXISTING signing key (required to update without uninstall)."
-} else {
-    Write-Host "FIRST BUILD ONLY: Create your permanent private signing key." -ForegroundColor Yellow
-}
-Write-Host "Keep the same password and key forever. Back up the .p12 securely." -ForegroundColor Yellow
-$secure = Read-Host "INFINITY signing password (12+ characters; input hidden)" -AsSecureString
+$secure = Read-Host "Password for the existing INFINITY signing key (input hidden)" -AsSecureString
 $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
 $password = $null
 try {
@@ -105,24 +154,21 @@ try {
 } finally {
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
 }
-if ([string]::IsNullOrWhiteSpace($password) -or $password.Length -lt 12) {
-    Fail "Choose a password with at least 12 characters."
-}
-$keytool = Join-Path $javaHome "bin\keytool.exe"
-if (-not (Test-Path $key)) {
-    Note "Generating a stable, private release signing certificate."
-    & $keytool -genkeypair -alias infinity -keyalg RSA -keysize 3072 -validity 10000 -storetype PKCS12 -keystore $key -dname "CN=ALRADHY Infinity, OU=Personal TV, O=ALRADHY, C=SA" -storepass $password -keypass $password -noprompt
-    if ($LASTEXITCODE -ne 0) { Fail "Signing key generation failed." }
-}
-& $keytool -list -keystore $key -storepass $password -alias infinity *> $null
-if ($LASTEXITCODE -ne 0) { Fail "Wrong signing password, or the signing key is damaged. DO NOT delete the key." }
-$env:INFINITY_KEYSTORE_PATH = $key
-$env:INFINITY_STORE_PASS = $password
-$env:INFINITY_KEY_ALIAS = "infinity"
-$env:INFINITY_KEY_PASS = $password
+if ([string]::IsNullOrEmpty($password)) { Fail "Enter the existing signing password." }
 
 $apk = Join-Path $root "app\build\outputs\apk\release\app-release.apk"
+$signingVariables = 'INFINITY_KEYSTORE_PATH', 'INFINITY_STORE_PASS', 'INFINITY_KEY_ALIAS', 'INFINITY_KEY_PASS'
+$savedSigning = @{}
+foreach ($name in $signingVariables) { $savedSigning[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 try {
+    $env:INFINITY_KEYSTORE_PATH = $key
+    $env:INFINITY_STORE_PASS = $password
+    $env:INFINITY_KEY_ALIAS = $SigningKeyAlias
+    $env:INFINITY_KEY_PASS = $password
+    $keyCertificate = Read-KeyCertificate (Join-Path $javaHome 'bin\keytool.exe') $key $SigningKeyAlias
+    if ($keyCertificate -ne $previous.Certificate) {
+        throw "This key does not match the certificate of the installed version."
+    }
     Note "Building release APK on YOUR laptop..."
     Push-Location $root
     try {
@@ -130,24 +176,24 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Gradle build failed (exit code $LASTEXITCODE). Read the error shown above." }
     } finally { Pop-Location }
     if (-not (Test-Path $apk)) { throw "Gradle reported success, but release APK was not found: $apk" }
+    $candidate = Read-ApkIdentity $apk
+    Assert-ApkUpdate $previous $candidate
     $outputDir = Join-Path $HOME "Downloads\ALRADHY-APKs\INFINITY"
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
-    $target = Join-Path $outputDir "ALRADHY-World-Window-INFINITY-v1.0.0-alpha1.apk"
-    Copy-Item -LiteralPath $apk -Destination $target -Force
+    $target = Join-Path $outputDir "ALRADHY-World-Window-INFINITY-update-$($candidate.VersionCode).apk"
+    if (Test-Path -LiteralPath $target) { throw "An APK already exists at the destination." }
+    Copy-Item -LiteralPath $apk -Destination $target
     Write-Host ""
-    Write-Host "SUCCESS! Signed APK built without paying GitHub." -ForegroundColor Green
+    Write-Host "SUCCESS! Package, signing certificate and increasing version verified." -ForegroundColor Green
     Write-Host "APK: $target" -ForegroundColor Green
     Write-Host "SHA256: $((Get-FileHash -Algorithm SHA256 $target).Hash)"
     Write-Host ""
-    Write-Host "BACK UP THIS SIGNING KEY SAFELY: $key" -ForegroundColor Yellow
-    Write-Host "Never delete it. Same app ID + same key + increasing versionCode = in-place updates." -ForegroundColor Yellow
 } catch {
     Write-Host ""
     Write-Host "LOCAL BUILD DID NOT SUCCEED: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host "The source project and your signing key were preserved." -ForegroundColor Yellow
     exit 1
 } finally {
-    Remove-Item Env:\INFINITY_STORE_PASS -ErrorAction SilentlyContinue
-    Remove-Item Env:\INFINITY_KEY_PASS -ErrorAction SilentlyContinue
+    foreach ($name in $signingVariables) { [Environment]::SetEnvironmentVariable($name, $savedSigning[$name], 'Process') }
     Remove-Variable password -ErrorAction SilentlyContinue
 }

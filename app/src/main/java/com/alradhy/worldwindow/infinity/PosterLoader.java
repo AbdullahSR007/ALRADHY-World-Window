@@ -2,6 +2,8 @@ package com.alradhy.worldwindow.infinity;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.media.ThumbnailUtils;
+import android.provider.MediaStore;
 import android.util.LruCache;
 import java.io.*;
 import java.net.*;
@@ -18,13 +20,20 @@ final class PosterLoader {
     private final LibraryStore library;
     PosterLoader(LibraryStore library){this.library=library;}
     Bitmap peek(Scene s,Runnable repaint){
-        String key=s.id+":"+(s.localPoster.isEmpty()?s.posterUrl:s.localPoster);
+        String key=s.id+":"+(s.hasOfflinePicture()?s.localMedia:
+            s.localPoster.isEmpty()?(s.isOffline()?s.localMedia:s.posterUrl):s.localPoster);
+        return request(key,()->decode(s),repaint);
+    }
+    Bitmap peekPicture(File file,int edge,Runnable repaint){
+        return request(file.getAbsolutePath()+":"+edge,()->GalleryStore.bitmap(file,edge),repaint);
+    }
+    private Bitmap request(String key,Callable<Bitmap> decode,Runnable repaint){
         Bitmap current=cache.get(key);
         if(current!=null&&!current.isRecycled())return current;
         if(!pending.add(key))return null;
         pool.execute(()->{
             try{
-                Bitmap img=decode(s);
+                Bitmap img=decode.call();
                 if(img!=null){cache.put(key,img);repaint.run();}
             }catch(Exception ignored){}
             finally{pending.remove(key);}
@@ -32,9 +41,18 @@ final class PosterLoader {
         return null;
     }
     private Bitmap decode(Scene s)throws Exception{
+        if(s.hasOfflinePicture())return decodeFile(new File(s.localMedia));
         String local=s.localPoster;
         if(!local.isEmpty()&&new File(local).isFile())return decodeFile(new File(local));
         if(s.isOffline()&&!s.isVideo())return decodeFile(new File(s.localMedia));
+        if(s.isOffline()){
+            File cached=new File(library.posterDir(),s.id+"_preview.jpg");
+            if(cached.isFile()){
+                Bitmap preview=decodeFile(cached);
+                if(preview!=null)return preview;
+            }
+            return ThumbnailUtils.createVideoThumbnail(s.localMedia,MediaStore.Video.Thumbnails.MINI_KIND);
+        }
         if(s.posterUrl.isEmpty())return null;
         if(!s.posterUrl.startsWith("https://"))return null;
         File temp=new File(library.posterDir(),s.id+"_preview.jpg");

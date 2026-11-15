@@ -15,13 +15,18 @@ public final class MainActivity extends Activity implements CinematicView.Action
     private LibraryStore library;
     private MediaResolver resolver;
     private CinematicView surface;
+    private SharedPreferences browsing;
     private final ExecutorService discovery=Executors.newSingleThreadExecutor();
     private final Set<String> queued=Collections.synchronizedSet(new HashSet<>());
     private final Handler handler=new Handler(Looper.getMainLooper());
     private boolean resumed=false;
     private final Runnable refresh=new Runnable(){
         @Override public void run(){
-            if(resumed&&surface!=null){surface.invalidate();handler.postDelayed(this,2500);}
+            if(resumed&&surface!=null){
+                surface.refreshPictures();
+                surface.invalidate();
+                handler.postDelayed(this,2500);
+            }
         }
     };
     @Override public void onCreate(Bundle state){
@@ -34,6 +39,8 @@ public final class MainActivity extends Activity implements CinematicView.Action
         library=LibraryStore.shared(this);
         resolver=new MediaResolver(library);
         surface=new CinematicView(this,library,this);
+        browsing=getSharedPreferences("infinity_browsing",MODE_PRIVATE);
+        surface.restoreSelection(browsing.getString("category","ALL"),browsing.getString("scene",""));
         setContentView(surface);
         surface.requestFocus();
         prefetch(surface.firstToResolve());
@@ -71,6 +78,21 @@ public final class MainActivity extends Activity implements CinematicView.Action
         i.putExtra("category",scene.category);
         startActivity(i);
     }
+    @Override public void downloadPictures(Scene scene){
+        Intent intent=new Intent(this,OfflineDownloadService.class);
+        if(OfflineDownloadService.isRunning()){
+            if(scene==null && OfflineDownloadService.isSavingPictures()){
+                startService(intent.setAction(OfflineDownloadService.PAUSE));
+            }else{
+                Toast.makeText(this,"A download is already running",Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
+        requestNotices();
+        intent.setAction(scene==null?OfflineDownloadService.PICTURES_ALL:OfflineDownloadService.PICTURES_ONE);
+        if(scene!=null)intent.putExtra(OfflineDownloadService.EXTRA_ID,scene.id);
+        startForegroundService(intent);
+    }
     @Override public void download(Scene scene){
         if(scene.isOffline()){
             new AlertDialog.Builder(this)
@@ -84,6 +106,10 @@ public final class MainActivity extends Activity implements CinematicView.Action
                 }).show();
             return;
         }
+        if(OfflineDownloadService.isRunning()){
+            Toast.makeText(this,"A download is already running",Toast.LENGTH_SHORT).show();
+            return;
+        }
         requestNotices();
         Intent i=new Intent(this,OfflineDownloadService.class);
         i.setAction(OfflineDownloadService.ONE);
@@ -93,8 +119,7 @@ public final class MainActivity extends Activity implements CinematicView.Action
     }
     @Override public void downloadAllOrPause(){
         requestNotices();
-        boolean running=getSharedPreferences("infinity_downloads",MODE_PRIVATE)
-            .getBoolean("active",false);
+        boolean running=OfflineDownloadService.isRunning();
         Intent i=new Intent(this,OfflineDownloadService.class);
         i.setAction(running?OfflineDownloadService.PAUSE:OfflineDownloadService.ALL);
         if(running)startService(i);
@@ -110,8 +135,16 @@ public final class MainActivity extends Activity implements CinematicView.Action
         super.onResume();resumed=true;handler.removeCallbacks(refresh);handler.post(refresh);
         if(surface!=null)surface.requestFocus();
     }
-    @Override protected void onPause(){resumed=false;handler.removeCallbacks(refresh);super.onPause();}
-    @Override public void onBackPressed(){finish();}
+    @Override protected void onPause(){
+        resumed=false;
+        handler.removeCallbacks(refresh);
+        Scene selected=surface.selected();
+        if(selected!=null){
+            browsing.edit().putString("category",surface.selectedCategory()).putString("scene",selected.id).apply();
+        }
+        super.onPause();
+    }
+    @Override public void onBackPressed(){if(!surface.closePictures())finish();}
     @Override protected void onDestroy(){
         handler.removeCallbacksAndMessages(null);
         discovery.shutdownNow();

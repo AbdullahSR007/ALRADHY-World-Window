@@ -6,7 +6,7 @@ echo  ALRADHY WORLD WINDOW INFINITY -- FREE Windows APK Build
 echo  No GitHub Actions usage, no payments.
 echo ===============================================================
 echo.
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0build-free-windows.ps1"
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File "%~dp0build-free-windows.ps1" %*
 set "exitcode=%ERRORLEVEL%"
 echo.
 if not "%exitcode%"=="0" (

@@ -94,6 +94,7 @@ public final class LibraryStore {
                 if(poster.getParentFile().equals(images))poster.delete();
             }
             scene.localMedia="";scene.localPoster="";scene.bytes=0;scene.total=0;
+            scene.offlineCredit="";scene.offlineLicense="";
             save();return true;
         }catch(Exception e){return false;}
     }

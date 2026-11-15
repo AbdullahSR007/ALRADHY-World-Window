@@ -94,8 +94,10 @@ public final class ScenePlayerActivity extends Activity {
         Scene s=playlist.get(position);
         heading.setText(s.title+"     "+s.arabic);
         subheading.setText(s.subtitle+"   •   "+s.status());
-        credits.setText("← / → NEXT SCENE       •       BACK TO COLLECTION       •       "+s.license+
-                (s.credit.isEmpty()?"":"   |   "+s.credit));
+        String credit=s.hasOfflinePicture()?s.offlineCredit:s.credit;
+        String license=s.hasOfflinePicture()?s.offlineLicense:s.license;
+        credits.setText("← / → NEXT SCENE       •       BACK TO COLLECTION       •       "+license+
+                (credit.isEmpty()?"":"   |   "+credit));
         updateClock();
         photo.animate().cancel();photo.setScaleX(1);photo.setScaleY(1);
         if(!s.hasSource()&&!s.isOffline()){
