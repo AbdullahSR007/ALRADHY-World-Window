@@ -1,6 +1,20 @@
 plugins { id 'com.android.application' }
 
+def signingPath = System.getenv('INFINITY_KEYSTORE_PATH')
+def signingEnabled = signingPath != null && file(signingPath).isFile()
+
 android {
+    signingConfigs {
+        if (signingEnabled) {
+            infinity {
+                storeFile file(signingPath)
+                storePassword System.getenv('INFINITY_STORE_PASS')
+                keyAlias System.getenv('INFINITY_KEY_ALIAS') ?: 'infinity'
+                keyPassword System.getenv('INFINITY_KEY_PASS')
+                storeType 'PKCS12'
+            }
+        }
+    }
     namespace 'com.alradhy.worldwindow.infinity'
     compileSdk 35
     defaultConfig {
@@ -15,7 +29,10 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
     buildTypes {
-        release { minifyEnabled false }
+        release {
+            minifyEnabled false
+            if (signingEnabled) signingConfig signingConfigs.infinity
+        }
         debug { applicationIdSuffix '' }
     }
     packaging { resources { excludes += ['/META-INF/{AL2.0,LGPL2.1}'] } }
