@@ -77,14 +77,17 @@ public final class OfflineDownloadService extends Service {
                 finished++;
                 notice("Saved "+finished+" / "+total+" • "+failures+" unavailable",finished,total);
             }
+            active.set(false);
             if(paused)notice("Paused • completed files are saved",finished,total);
             else notice("Finished • "+library.offlineCount()+" saved, "+failures+" unavailable",total,total);
             library.save();
         }catch(Exception e){
+            active.set(false);
             notice("Stopped: "+e.getMessage(),finished,total);
         }finally{
             if(wake!=null&&wake.isHeld())wake.release();
             active.set(false);
+            getSharedPreferences("infinity_downloads",MODE_PRIVATE).edit().putBoolean("active",false).apply();
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf(startId);
         }
