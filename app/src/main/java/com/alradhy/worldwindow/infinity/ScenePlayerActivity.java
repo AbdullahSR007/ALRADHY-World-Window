@@ -94,7 +94,7 @@ public final class ScenePlayerActivity extends Activity {
         int run=++generation;
         Scene s=playlist.get(position);
         heading.setText(s.title+"     "+s.arabic);
-        subheading.setText(s.subtitle+"   •   "+s.status());
+        subheading.setText(WorldStore.categoryName(s.category)+"   •   "+s.status());
         String credit=s.hasOfflinePicture()?s.offlineCredit:s.credit;
         String license=s.hasOfflinePicture()?s.offlineLicense:s.license;
         credits.setText("← / → NEXT SCENE       •       BACK TO COLLECTION       •       "+license+

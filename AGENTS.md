@@ -23,3 +23,15 @@ The user confirms 10007 is installed with 100 downloaded videos and all picture 
 Agreed 10008 scope: add places with confirmation, offline Wikipedia facts, cached sun times,
 destination/photo favourites and My World, resumable download requests and retry missing photos,
 storage overview, slideshow timing/shuffle/fit options. Preserve all existing media.
+
+10009 additions explicitly requested by the user:
+- Arabic descriptions for ALL original and user-added places, including previously added
+  entries and Space. Never display a legacy English description as the fallback. Fetch/cache
+  Arabic descriptions for existing custom places without redownloading their media.
+- Choose Cities/Nature/Oceans/Space when adding. Keep old custom entries in Cities by default;
+  do not change any saved IDs. Space search must not require Earth coordinates.
+- An explicit confirmed UI action may delete a custom place and ONLY its own downloaded
+  media/pictures/preferences. Built-in destinations are protected. Block deletion during downloads.
+- Any saved photo makes its pack READY. Twenty is a target, not a completeness requirement.
+  Allow manual extra-photo requests and a user-controlled automatic top-up option for Download All.
+- Compare the next APK to delivered 10008 as well as Claude 10007; signatures must match both.

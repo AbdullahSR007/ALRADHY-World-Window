@@ -108,4 +108,58 @@ public class WorldUpdateTest {
             assertEquals(0,world.prefs.getInt("mix",-1));
         }finally{controller.destroy();}
     }
+    @Test public void categoriesPersistAndLegacyPlacesKeepCitiesDefault()throws Exception{
+        WorldStore world=new WorldStore(app);
+        world.prefs.edit().putString("places",new JSONArray().put(new JSONObject().put("id","U700").put("title","Legacy place")).toString()).commit();
+        assertEquals("CITIES",world.custom().get(0).category);
+        for(int i=0;i<WorldStore.PLACE_CATEGORIES.length;i++){
+            Scene added=world.add(new JSONObject().put("pageid",800+i).put("title","New "+i),WorldStore.PLACE_CATEGORIES[i]);
+            assertEquals(WorldStore.PLACE_CATEGORIES[i],added.category);
+            assertEquals(i==3?"NASA":"COMMONS",added.provider);
+        }
+        LibraryStore reloaded=new LibraryStore(app);
+        assertEquals("SPACE",reloaded.byId("U803").category);
+        assertTrue(reloaded.category("SPACE").contains(reloaded.byId("U803")));
+        try{world.add(new JSONObject().put("pageid",900).put("title","Bad"),"ALL");fail();}catch(IllegalArgumentException expected){}
+    }
+    @Test public void deleteCustomRemovesOnlyItsFilesAndNeverBuiltInPlaces()throws Exception{
+        WorldStore world=new WorldStore(app);Scene added=world.add(new JSONObject().put("pageid",999).put("title","Remove me"),"SPACE");
+        LibraryStore library=new LibraryStore(app);added=library.byId(added.id);
+        Scene original=library.scenes.get(0);seedPack(original,2);seedPack(added,3);
+        byte[] keep="keep this video".getBytes(StandardCharsets.UTF_8);
+        File preserved=new File(library.mediaDir(),original.id+".mp4");write(preserved,keep);
+        File remove=new File(library.mediaDir(),added.id+".mp4");write(remove,new byte[]{1,2,3});added.localMedia=remove.getAbsolutePath();added.total=3;
+        File part=new File(library.mediaDir(),added.id+".mp4.part");write(part,new byte[]{1});
+        world.toggle(added);world.togglePhoto(added,String.format(Locale.US,"%064x.img",1));library.save();
+        library.deleteCustom(added);
+        assertNull(library.byId(added.id));assertFalse(remove.exists());assertFalse(part.exists());
+        assertEquals(0,new GalleryStore(app,added).saved().size());assertEquals(2,new GalleryStore(app,original).saved().size());
+        assertArrayEquals(keep,Files.readAllBytes(preserved.toPath()));assertFalse(world.favourite(added));assertFalse(world.hasFavouritePhotos(added));
+        assertEquals(100,new LibraryStore(app).scenes.size());
+        try{library.deleteCustom(original);fail();}catch(IllegalArgumentException expected){}
+        assertArrayEquals(keep,Files.readAllBytes(preserved.toPath()));
+    }
+    @Test public void descriptionsAlwaysArabicEvenWithLegacyEnglishCache()throws Exception{
+        WorldStore world=new WorldStore(app);
+        for(Scene s:SceneCatalog.create()){
+            world.prefs.edit().putString("info:"+s.id,new JSONObject().put("extract","English cached description").toString()).commit();
+            assertTrue(s.id,world.description(s).matches(".*[\\u0600-\\u06ff].*"));
+            assertFalse(world.description(s).contains("English cached"));
+            assertNotEquals(WorldStore.NO_ARABIC,world.description(s));
+        }
+        Scene space=world.add(new JSONObject().put("pageid",123).put("title","Space").put("extractAr","وصف عربي محفوظ"),"SPACE");
+        assertEquals("وصف عربي محفوظ",world.description(space));
+    }
+    @Test public void twoPhotosAreReadyAndManualBulkDoesNotTopUp()throws Exception{
+        LibraryStore library=LibraryStore.shared(app);Scene scene=library.scenes.get(0);seedPack(scene,2);
+        assertEquals(1,GalleryStore.summarize(app,Collections.singletonList(scene)).packs);
+        org.robolectric.android.controller.ServiceController<OfflineDownloadService> controller=Robolectric.buildService(OfflineDownloadService.class).create();
+        try{
+            OfflineDownloadService service=controller.get();
+            java.lang.reflect.Field total=OfflineDownloadService.class.getDeclaredField("total");total.setAccessible(true);total.set(service,1);
+            java.lang.reflect.Method process=OfflineDownloadService.class.getDeclaredMethod("processPictures",List.class);process.setAccessible(true);process.invoke(service,Collections.singletonList(scene));
+            java.lang.reflect.Field finished=OfflineDownloadService.class.getDeclaredField("finished");finished.setAccessible(true);assertEquals(1,finished.getInt(service));
+            assertEquals(2,new GalleryStore(app,scene).saved().size());
+        }finally{controller.destroy();}
+    }
 }

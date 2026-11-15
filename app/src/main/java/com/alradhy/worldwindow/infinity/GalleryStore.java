@@ -141,7 +141,7 @@ final class GalleryStore {
             if(saved.isEmpty())continue;
             counts.put(scene.id,saved.size());
             total+=saved.size();
-            if(saved.size()>=TARGET)packs++;
+            packs++;
             for(Photo photo:saved)bytes+=store.file(photo).length();
         }
         return new Summary(Collections.unmodifiableMap(counts),packs,total,bytes);
@@ -176,7 +176,7 @@ final class GalleryStore {
                 progress.update("Finding pictures across sources…",new ArrayList<>(photos));
                 providers.add(commons(query,stop));
                 providers.add(openverse(query,round+1,stop));
-                if(round==0 && "NASA".equals(scene.provider))providers.add(nasa(query,stop));
+                if(round==0 && "NASA".equals(scene.provider))providers.add(nasa(scene.search,stop));
                 // Interleave providers so one slow source never blocks a whole pack.
                 List<Source> queue=new ArrayList<>();
                 for(int i=0;i<32;i++)for(List<Source> choices:providers){

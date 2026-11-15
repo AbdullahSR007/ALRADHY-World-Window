@@ -54,6 +54,13 @@ public final class MainActivity extends Activity implements CinematicView.Action
         setContentView(surface);
         surface.requestFocus();
         prefetch(surface.firstToResolve());
+        // Upgrade previously added places' descriptions without touching their media.
+        for(Scene scene:library.scenes)if(world.isCustom(scene)&&!world.info(scene).has("extractAr")){
+            worldWorker.execute(()->{
+                try{world.refresh(scene);runOnUiThread(()->{if(!isDestroyed())surface.invalidate();});}
+                catch(Exception ignored){/* Offline: keep Arabic notice and retry on the next launch. */}
+            });
+        }
     }
     private void prefetch(List<Scene> items){
         for(Scene scene:items){
@@ -98,6 +105,14 @@ public final class MainActivity extends Activity implements CinematicView.Action
     }
     @Override public void removePictures(Scene scene){
         if(scene==null)return;
+        new AlertDialog.Builder(this).setTitle("إدارة صور "+scene.title)
+            .setItems(new String[]{"الاكتفاء بالصور المحفوظة","البحث عن صور إضافية (حتى ٢٠)","حذف صور هذا المكان"},(d,w)->{
+                if(w==1)downloadPictures(scene);
+                if(w==2)confirmRemovePictures(scene);
+            }).setNegativeButton("إغلاق",null).show();
+    }
+    private void confirmRemovePictures(Scene scene){
+        if(scene==null)return;
         if(OfflineDownloadService.isSavingPictures()){
             Toast.makeText(this,"Pause picture downloads before removing a pack",Toast.LENGTH_LONG).show();
             return;
@@ -127,37 +142,47 @@ public final class MainActivity extends Activity implements CinematicView.Action
     }
     private void message(String value){if(!isDestroyed())Toast.makeText(this,value,Toast.LENGTH_LONG).show();}
     @Override public void addPlace(){
+        new AlertDialog.Builder(this).setTitle("اختر تصنيف المكان الجديد").setItems(WorldStore.CATEGORY_NAMES,(d,w)->searchPlace(WorldStore.PLACE_CATEGORIES[w])).setNegativeButton("إلغاء",null).show();
+    }
+    private void searchPlace(String category){
         android.widget.EditText input=new android.widget.EditText(this);
-        input.setSingleLine(true);input.setHint("City or landmark, e.g. AlUla");
+        input.setSingleLine(true);input.setHint(category.equals("SPACE")?"اسم كوكب أو سديم أو مجرة":"اسم مدينة أو معلم بالعربية أو الإنجليزية");
         input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(100)});
-        new AlertDialog.Builder(this).setTitle("Add a new place").setView(input)
+        new AlertDialog.Builder(this).setTitle("إضافة مكان — "+WorldStore.categoryName(category)).setView(input)
             .setNegativeButton("Cancel",null).setPositiveButton("Search",(d,w)->{
                 String query=input.getText().toString().trim();
                 if(query.length()<2){message("Enter at least two characters");return;}
                 message("Searching for places…");
                 placeSearch.execute(()->{
                     try{
-                        List<org.json.JSONObject> found=WorldStore.search(query);
+                        List<org.json.JSONObject> found=WorldStore.search(query,category);
                         runOnUiThread(()->{
                             if(isDestroyed())return;
                             if(found.isEmpty()){message("No matching places. Try a city and country, or another spelling.");return;}
                             String[] names=new String[found.size()];
                             for(int i=0;i<names.length;i++)names[i]=found.get(i).optString("title");
-                            new AlertDialog.Builder(this).setTitle("Choose the correct place").setItems(names,(dialog,which)->confirmPlace(found.get(which))).setNegativeButton("Cancel",null).show();
+                            new AlertDialog.Builder(this).setTitle("Choose the correct place").setItems(names,(dialog,which)->preparePlace(found.get(which),category)).setNegativeButton("Cancel",null).show();
                         });
                     }catch(Exception error){runOnUiThread(()->message("Search unavailable. Check your connection and try again."));}
                 });
             }).show();
     }
-    private void confirmPlace(org.json.JSONObject place){
+    private void preparePlace(org.json.JSONObject place,String category){
+        message("جارٍ تحميل الوصف العربي…");
+        placeSearch.execute(()->{
+            try{WorldStore.arabic(place);}catch(Exception ignored){}
+            runOnUiThread(()->{if(!isDestroyed())confirmPlace(place,category);});
+        });
+    }
+    private void confirmPlace(org.json.JSONObject place,String category){
         new AlertDialog.Builder(this).setTitle(place.optString("title"))
-            .setMessage(place.optString("extract","")+"\n\nWikipedia • CC BY-SA. Add this place? Pictures can then be saved once for offline use.")
+            .setMessage(place.optString("extractAr",WorldStore.NO_ARABIC)+"\n\nالتصنيف: "+WorldStore.categoryName(category)+"\nويكيبيديا • CC BY-SA. هل تريد إضافة المكان؟")
             .setNegativeButton("Cancel",null).setPositiveButton("Add place",(d,w)->{
                 try{
                     for(Scene existing:library.scenes)if(existing.title.equalsIgnoreCase(place.optString("title"))){
                         surface.restoreSelection("ALL",existing.id);message("Already in your library");return;
                     }
-                    Scene added=world.add(place);library.scenes.add(added);
+                    Scene added=world.add(place,category);library.scenes.add(added);
                     surface.restoreSelection("MY WORLD",added.id);surface.invalidate();sceneChanged(added);
                     new AlertDialog.Builder(this).setTitle("Place added").setMessage("Save up to 20 distinct pictures from available sources? Progress and any missing pictures appear in Downloads.")
                         .setNegativeButton("Later",null).setPositiveButton("Save picture pack",(a,b)->downloadPictures(added)).show();
@@ -170,10 +195,13 @@ public final class MainActivity extends Activity implements CinematicView.Action
             labels.add(world.favourite(scene)?"Remove destination from favourites":"♥ Favourite this destination");
             commands.add(()->{world.toggle(scene);surface.restoreSelection(surface.selectedCategory(),scene.id);surface.invalidate();});
             if(photo!=null){labels.add(world.photoFavourite(scene,photo.file)?"Remove photo from favourites":"♥ Favourite this picture");commands.add(()->{world.togglePhoto(scene,photo.file);message("Picture favourite updated");});}
-            labels.add("About this place • facts and sun times");commands.add(()->about(scene));
+            if(world.isCustom(scene)){labels.add("حذف هذا المكان المضاف");commands.add(()->deletePlace(scene));}
+            labels.add("عن المكان • الوصف العربي ومواقيت الشمس");commands.add(()->about(scene));
             labels.add("Slideshow: this destination only");commands.add(()->launchAmbient(scene,0));
         }
         labels.add("Downloads and storage");commands.add(this::downloadCenter);
+        labels.add("الاستكمال التلقائي عند تنزيل الكل: "+(world.prefs.getBoolean("auto_pictures",false)?"تشغيل":"إيقاف"));
+        commands.add(()->{boolean enabled=!world.prefs.getBoolean("auto_pictures",false);world.prefs.edit().putBoolean("auto_pictures",enabled).apply();message(enabled?"سيبحث تنزيل الكل عن صور إضافية للحزم الموجودة أيضًا":"تنزيل الكل سيحفظ الأماكن التي بلا صور فقط؛ يمكنك طلب المزيد يدويًا");});
         if(getSharedPreferences("infinity_queue",MODE_PRIVATE).getBoolean("pending",false)){
             labels.add("Resume last interrupted download");commands.add(()->{
                 if(OfflineDownloadService.isRunning()){message("A download is already running");return;}
@@ -182,14 +210,24 @@ public final class MainActivity extends Activity implements CinematicView.Action
         }
         labels.add("Slideshow settings");commands.add(this::slideshowSettings);
         labels.add("Ambient mix");commands.add(this::ambientMix);
-        labels.add(world.prefs.getBoolean("refreshing",false)?world.prefs.getString("world_status","Saving place information…"):"Save / refresh all place facts and sun times");commands.add(this::refreshWorld);
+        labels.add(world.prefs.getBoolean("refreshing",false)?world.prefs.getString("world_status","Saving place information…"):"حفظ / تحديث الأوصاف العربية لجميع الأماكن");commands.add(this::refreshWorld);
         new AlertDialog.Builder(this).setTitle("INFINITY options").setItems(labels.toArray(new String[0]),(d,w)->commands.get(w).run()).setNegativeButton("Close",null).show();
+    }
+    private void deletePlace(Scene scene){
+        new AlertDialog.Builder(this).setTitle("حذف "+scene.title+"؟")
+            .setMessage("سيُحذف هذا المكان المضاف وتنزيلاته وصوره ومفضلته فقط. ستبقى الأماكن الأصلية وبقية مكتبتك كما هي.")
+            .setNegativeButton("إلغاء",null).setPositiveButton("حذف المكان",(d,w)->{
+                try{library.deleteCustom(scene);surface.restoreSelection("MY WORLD","");surface.invalidate();countPictures();message("تم حذف المكان المضاف");}
+                catch(Exception error){message(error.getMessage());}
+            }).show();
     }
     private void about(Scene scene){
         org.json.JSONObject info=world.info(scene);
         new AlertDialog.Builder(this).setTitle(scene.title)
-            .setMessage(world.daylight(scene)+"\n\n"+info.optString("extract","No saved facts yet. Use Refresh while online.")+"\n\nWikipedia • CC BY-SA 4.0\nhttps://en.wikipedia.org/?curid="+info.optLong("pageid",0)+"\nSun times: Open-Meteo • CC BY 4.0 (cached up to 7 days)")
-            .setNegativeButton("Close",null).setPositiveButton("Refresh",(d,w)->{
+            .setMessage(world.daylightArabic(scene)+"\n\n"+world.description(scene)+
+                (info.optLong("pageidAr",0)>0?"\n\nويكيبيديا العربية • CC BY-SA 4.0\nhttps://ar.wikipedia.org/?curid="+info.optLong("pageidAr"):"\n\nوصف عربي ضمن التطبيق؛ يمكن تحديثه من مصدر عربي عند توفره.")+
+                "\nمواقيت الشمس: Open-Meteo • CC BY 4.0 • محفوظة حتى ٧ أيام")
+            .setNegativeButton("Close",null).setPositiveButton("تحديث الوصف",(d,w)->{
                 message("Refreshing place information…");worldWorker.execute(()->{
                     try{world.refresh(scene);runOnUiThread(()->{if(!isDestroyed())about(scene);});}
                     catch(Exception e){runOnUiThread(()->message("Refresh unavailable; saved facts retained"));}
@@ -203,7 +241,7 @@ public final class MainActivity extends Activity implements CinematicView.Action
             int done=0,checked=0;
             try{for(Scene scene:library.scenes){if(Thread.currentThread().isInterrupted())break;
                 world.prefs.edit().putString("world_status","Place information "+(++checked)+"/"+library.scenes.size()+" • "+scene.title).apply();
-                try{world.refresh(scene);if(world.info(scene).has("extract"))done++;}catch(Exception ignored){}
+                try{world.refresh(scene);if(world.info(scene).has("extractAr"))done++;}catch(Exception ignored){}
             }}finally{world.prefs.edit().putBoolean("refreshing",false).apply();}
             final int count=done;runOnUiThread(()->message(count+" places have saved facts. Unmatched places remain unchanged."));
         });
@@ -225,12 +263,12 @@ public final class MainActivity extends Activity implements CinematicView.Action
     private void downloadCenter(){
         stats.execute(()->{
             GalleryStore.Summary summary=GalleryStore.summarize(this,library.scenes);
-            StringBuilder details=new StringBuilder("Videos/media: "+library.offlineCount()+"/"+library.scenes.size()+" saved\nPictures: "+summary.photos+" • "+summary.packs+" complete packs\nMedia free space: "+library.human(library.mediaDir().getUsableSpace())+"\nPictures free space: "+library.human(getFilesDir().getUsableSpace())+"\n\n");
-            for(Scene s:library.scenes){int n=summary.count(s);if(n<GalleryStore.TARGET)details.append(s.title).append(": ").append(n).append("/20 pictures\n");}
+            StringBuilder details=new StringBuilder("Videos/media: "+library.offlineCount()+"/"+library.scenes.size()+" saved\nPictures: "+summary.photos+" • "+summary.packs+" ready packs\nMedia free space: "+library.human(library.mediaDir().getUsableSpace())+"\nPictures free space: "+library.human(getFilesDir().getUsableSpace())+"\n\n");
+            for(Scene s:library.scenes){int n=summary.count(s);details.append(s.arabic.isEmpty()?s.title:s.arabic).append(": ").append(n).append(n>0?" صورة • جاهز\n":" • لم تُحفظ صور\n");}
             runOnUiThread(()->{if(isDestroyed())return;
                 new AlertDialog.Builder(this).setTitle("Downloads and storage")
-                    .setMessage(details.toString()+"\n"+getSharedPreferences("infinity_pictures",MODE_PRIVATE).getString("status","")+"\n"+getSharedPreferences("infinity_downloads",MODE_PRIVATE).getString("status",""))
-                    .setPositiveButton(OfflineDownloadService.isRunning()?"Pause":"Save / retry missing pictures",(d,w)->{
+                    .setMessage(details.toString()+"\n"+WorldStore.pictureStatus(getSharedPreferences("infinity_pictures",MODE_PRIVATE).getString("status",""))+"\n"+getSharedPreferences("infinity_downloads",MODE_PRIVATE).getString("status",""))
+                    .setPositiveButton(OfflineDownloadService.isRunning()?"Pause":"حفظ / استكمال حسب الإعداد",(d,w)->{
                         if(OfflineDownloadService.isRunning())startService(new Intent(this,OfflineDownloadService.class).setAction(OfflineDownloadService.PAUSE));else downloadPictures(null);
                     }).setNeutralButton("Resume videos",(d,w)->{if(!OfflineDownloadService.isRunning())downloadAllOrPause();else message("Pause the active download first");}).setNegativeButton("Close",null).show();
             });

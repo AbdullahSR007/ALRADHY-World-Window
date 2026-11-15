@@ -211,7 +211,7 @@ final class AmbientView extends View {
 
         text(c,fit(s.sun,23,1600,medium),80,760,23,GOLD,medium,Paint.Align.LEFT);
         text(c,fit(s.fact,23,1700,medium),80,810,23,CREAM,medium,Paint.Align.LEFT);
-        if(!s.fact.isEmpty())text(c,"Facts: Wikipedia • CC BY-SA 4.0 • source in OPTIONS / About",80,845,17,PALE,medium,Paint.Align.LEFT);
+        if(!s.fact.isEmpty())text(c,"وصف عربي • تفاصيل المصدر في خيارات المكان",80,845,17,PALE,medium,Paint.Align.LEFT);
         text(c,fit(s.place,78,1300,light),80,930,78,CREAM,light,Paint.Align.LEFT);
         if(!s.arabic.isEmpty())text(c,s.arabic,82,985,36,0xffe9c891,medium,Paint.Align.LEFT);
         text(c,fit(s.caption,19,1250,medium),84,1030,19,PALE,medium,Paint.Align.LEFT);
@@ -267,15 +267,15 @@ final class AmbientView extends View {
                 int originalIndex=photoIndex++;
                 if(mix==1&&!world.favourite(scene)&&!world.photoFavourite(scene,photo.file))continue;
                 String credit=photo.credit.isEmpty()?photo.provider:photo.credit+" • "+photo.provider;
-                String caption=photo.title.isEmpty()?credit:photo.title+"   •   "+credit;
+                String caption=credit;
                 Slide slide=new Slide(gallery.file(photo),scene.title,scene.arabic,world.zone(scene),caption+" • "+photo.license);
                 slide.sceneId=scene.id;slide.photoIndex=originalIndex;
-                slide.fact=world.info(scene).optString("extract","").replaceAll("\\s+"," ");slide.sun=sun;result.add(slide);
+                slide.fact=world.description(scene).replaceAll("\\s+"," ");slide.sun=world.daylightArabic(scene);result.add(slide);
             }
             if(sceneId==null && (mix!=1||world.favourite(scene)) && scene.isOffline() && !scene.isVideo()){
                 String credit=scene.hasOfflinePicture()?scene.offlineCredit:scene.credit;
                 result.add(new Slide(new File(scene.localMedia),scene.title,scene.arabic,scene.zone,
-                    credit.isEmpty()?scene.subtitle:scene.subtitle+"   •   "+credit));
+                    credit.isEmpty()?WorldStore.categoryName(scene.category):WorldStore.categoryName(scene.category)+"   •   "+credit));
             }
         }
         if(sceneId==null && world.prefs.getBoolean("shuffle",true))Collections.shuffle(result);
