@@ -73,7 +73,15 @@ public final class MainActivity extends Activity implements CinematicView.Action
     }
     @Override public void download(Scene scene){
         if(scene.isOffline()){
-            Toast.makeText(this,"Already saved for offline use",Toast.LENGTH_SHORT).show();
+            new AlertDialog.Builder(this)
+                .setTitle("Remove this offline scene?")
+                .setMessage(scene.title+" • the local file will be deleted, but the destination remains in your library.")
+                .setNegativeButton("Keep",null)
+                .setPositiveButton("Remove",(dialog,which)->{
+                    boolean done=library.deleteOffline(scene);
+                    Toast.makeText(this,done?"Offline copy removed":"Could not remove a busy file",Toast.LENGTH_LONG).show();
+                    surface.invalidate();
+                }).show();
             return;
         }
         requestNotices();
