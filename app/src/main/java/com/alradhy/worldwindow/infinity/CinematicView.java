@@ -207,7 +207,7 @@ public final class CinematicView extends View {
         String title=fit(s.title,76,950);
         label(c,title,269,567,Math.min(76,title.length()>20?62:76),CREAM,heading,false);
         label(c,s.arabic,274,628,37,0xffe9c891,medium,false);
-        label(c,s.subtitle,275,676,25,0xffd5e5e5,heading,false);
+        label(c,WorldStore.categoryName(s.category),275,676,25,0xffd5e5e5,heading,false);
         outline(c,222,157,1118,558,25,0x44d2a66b,1.8f);
     }
     private void drawGlobe(Canvas c,float cx,float cy){
@@ -231,7 +231,7 @@ public final class CinematicView extends View {
                 float wide=bitmap.getWidth()*scale, high=bitmap.getHeight()*scale;
                 image(c,bitmap,222+(1118-wide)/2,157+(465-high)/2,wide,high,4);
             }
-            label(c,fit(photo.title,26,1000),253,653,26,CREAM,heading,false);
+            label(c,fit(new WorldStore(getContext()).description(scene),26,1000),253,653,26,CREAM,heading,false);
             String credit=photo.credit.isEmpty()?photo.provider:photo.credit+" • "+photo.provider;
             label(c,fit(credit+" • "+photo.license,18,1035),253,686,18,PALE,medium,false);
         }
@@ -242,14 +242,13 @@ public final class CinematicView extends View {
         outline(c,1360,157,516,558,26,0x6669979b,1.8f);
         label(c,"PICTURES",1402,215,27,GOLD,medium,false);
         label(c,fit(scene.title,42,430),1402,313,42,CREAM,heading,false);
-        label(c,photos.size()+"/"+GalleryStore.TARGET+" saved for offline viewing",1404,371,23,PALE,medium,false);
+        label(c,photos.isEmpty()?"لم تُحفظ صور بعد":photos.size()+" صورة محفوظة • جاهزة للعرض",1404,371,23,PALE,medium,false);
         boolean running=OfflineDownloadService.isSavingPictures();
         action(c,0,1404,430,"←    BACK TO DESTINATIONS",false);
         action(c,1,1404,495,"▶    SLIDESHOW • ALL PLACES",false);
-        action(c,2,1404,560,photos.size()>=GalleryStore.TARGET?"×    REMOVE THIS PACK":
-            photos.isEmpty()?"↓    SAVE THIS PACK":"↓    SAVE MISSING  ("+photos.size()+"/"+GalleryStore.TARGET+")",false);
+        action(c,2,1404,560,photos.isEmpty()?"↓    حفظ الصور":"▧    إدارة الصور المحفوظة",false);
         action(c,3,1404,625,running?"Ⅱ    PAUSE PICTURE DOWNLOADS":"⇩    DOWNLOAD ALL PICTURES",true);
-        label(c,pictures.packs+" complete packs  •  "+pictures.photos+" photos  •  "+library.human(pictures.bytes),
+        label(c,pictures.packs+" ready packs  •  "+pictures.photos+" photos  •  "+library.human(pictures.bytes),
             1408,703,18,0xffb9ccd0,medium,false);
     }
     private void drawPictureStrip(Canvas c){
@@ -273,7 +272,7 @@ public final class CinematicView extends View {
         label(c,new WorldStore(getContext()).favourite(s)?"♥  MY WORLD":"A WINDOW TO WONDER",1401,207,21,GOLD,medium,false);
         label(c,String.format(Locale.US,"%02d  /  %02d",index+1,visible.size()),
              1815,207,22,PALE,medium,true);
-        label(c,new WorldStore(getContext()).daylight(s),1402,277,20,0xff9bb7bd,medium,false);
+        label(c,new WorldStore(getContext()).daylightArabic(s),1402,277,20,0xff9bb7bd,medium,false);
         label(c,fit(s.title,52,436),1402,344,52,CREAM,heading,false);
         String clock;
         try{clock=ZonedDateTime.now(ZoneId.of(new WorldStore(getContext()).zone(s))).format(timeFormat);}
@@ -328,7 +327,7 @@ public final class CinematicView extends View {
                 String badge="▧ "+pack;
                 p.setTypeface(medium);p.setTextSize(16);
                 float bw=p.measureText(badge)+22;
-                rounded(c,x+308-bw-10,y+10,bw,30,14,pack>=GalleryStore.TARGET?0xdd2f7a6c:0xcc0b2029);
+                rounded(c,x+308-bw-10,y+10,bw,30,14,0xdd2f7a6c);
                 label(c,badge,x+308-bw-10+11,y+31,16,CREAM,medium,false);
             }
             if(j==index)outline(c,x-3,y-3,314,211,17,
@@ -347,6 +346,7 @@ public final class CinematicView extends View {
         android.content.SharedPreferences downloads=getContext().getSharedPreferences(
             picturesProgress?"infinity_pictures":"infinity_downloads",Context.MODE_PRIVATE);
         String progress=downloads.getString("status","");
+        if(picturesProgress)progress=WorldStore.pictureStatus(progress);
         if(OfflineDownloadService.isRunning()){
             int total=downloads.getInt("total",0);
             if(total>0)rounded(c,227,1015,1640f*downloads.getInt("done",0)/total,3,0,GOLD);
@@ -453,7 +453,7 @@ public final class CinematicView extends View {
             else if(buttonIndex==1){actions.ambient(null,0);}
             else if(buttonIndex==0)closePictures();
             else if(buttonIndex==2){
-                if(photos.size()>=GalleryStore.TARGET)actions.removePictures(s);
+                if(!photos.isEmpty())actions.removePictures(s);
                 else actions.downloadPictures(s);
             }
             else if(buttonIndex==3)actions.downloadPictures(null);

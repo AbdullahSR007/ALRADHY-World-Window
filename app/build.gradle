@@ -21,8 +21,8 @@ android {
         applicationId 'com.alradhy.worldwindow.infinity'
         minSdk 26
         targetSdk 34
-        versionCode 10008
-        versionName '1.1.0-world'
+        versionCode 10009
+        versionName '1.1.1-arabic-places'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

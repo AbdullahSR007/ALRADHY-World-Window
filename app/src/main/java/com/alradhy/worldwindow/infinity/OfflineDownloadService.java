@@ -137,25 +137,28 @@ public final class OfflineDownloadService extends Service {
     }
     private void processPictures(List<Scene> scenes)throws GalleryStore.StorageFullException{
         List<Scene> retry=new ArrayList<>();
+        boolean automatic=new WorldStore(this).prefs.getBoolean("auto_pictures",false);
         for(int i=0;i<scenes.size()&&!paused;i++){
             Scene scene=scenes.get(i);
             GalleryStore gallery=new GalleryStore(this,scene);
             int position=i+1;
             try{
                 List<GalleryStore.Photo> photos=gallery.saved();
-                if(photos.size()<GalleryStore.TARGET){
+                if(photos.isEmpty() || (automatic||PICTURES_ONE.equals(runningAction))&&photos.size()<GalleryStore.TARGET){
                     notice("Pictures "+position+"/"+total+" • "+scene.title,finished,total);
                     photos=gallery.download(scene,()->paused,(message,items)->{
                         if(!paused)notice(position+"/"+total+" • "+scene.title+" • "+
                             items.size()+"/"+GalleryStore.TARGET+" pictures",finished,total);
                     });
                 }
-                if(photos.size()>=GalleryStore.TARGET)finished++;
-                else if(!paused)retry.add(scene);
+                if(!photos.isEmpty())finished++;
+                if(!paused&&(photos.isEmpty()||automatic&&photos.size()<GalleryStore.TARGET))retry.add(scene);
             }catch(GalleryStore.StorageFullException error){
                 throw error;
             }catch(IOException error){
-                if(!paused)retry.add(scene);
+                boolean ready=!gallery.saved().isEmpty();
+                if(ready)finished++;
+                if(!paused&&(!ready||automatic))retry.add(scene);
                 Log.w("InfinityDownload",scene.id+": picture pack incomplete",error);
             }
         }
@@ -163,17 +166,21 @@ public final class OfflineDownloadService extends Service {
         for(Scene scene:retry){
             if(paused)break;
             GalleryStore gallery=new GalleryStore(this,scene);
+            boolean wasReady=!gallery.saved().isEmpty();
             try{
-                notice("Retrying missing pictures • "+scene.title,finished,total);
+                notice("البحث عن صور إضافية • "+scene.title,finished,total);
                 List<GalleryStore.Photo> photos=gallery.download(scene,()->paused,(message,items)->{
                     if(!paused)notice("Retry • "+scene.title+" • "+items.size()+"/20 pictures",finished,total);
                 });
-                if(photos.size()>=GalleryStore.TARGET)finished++;else if(!paused)failures++;
+                if(!photos.isEmpty()){if(!wasReady)finished++;}else if(!paused)failures++;
             }catch(GalleryStore.StorageFullException error){throw error;}
-            catch(IOException error){if(!paused)failures++;}
+            catch(IOException error){
+                if(!gallery.saved().isEmpty()){if(!wasReady)finished++;}
+                else if(!paused)failures++;
+            }
         }
         notice(paused?"Pictures paused • saved photos kept":
-            "Pictures • "+finished+"/"+total+" packs complete • "+failures+" incomplete",finished,total);
+            "Pictures • "+finished+"/"+total+" حزم جاهزة • "+failures+" بلا صور",finished,total);
     }
     private String progressPreferences(){return pictures?"infinity_pictures":"infinity_downloads";}
     private enum SaveResult { SAVED, RETRY, UNAVAILABLE }

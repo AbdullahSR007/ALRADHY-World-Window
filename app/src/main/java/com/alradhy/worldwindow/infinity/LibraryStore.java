@@ -106,6 +106,21 @@ public final class LibraryStore {
         }catch(Exception e){return false;}
     }
     public int offlineCount(){int n=0;for(Scene s:scenes)if(s.isOffline())n++;return n;}
+    public synchronized void deleteCustom(Scene scene)throws Exception{
+        WorldStore world=new WorldStore(app);
+        if(!scene.id.matches("UA?[0-9]+")||!world.isCustom(scene))throw new IllegalArgumentException("لا يمكن حذف الأماكن الأصلية");
+        if(OfflineDownloadService.isRunning()||scene.resolving||scene.downloading)
+            throw new IllegalStateException("أوقف التنزيل وانتظر انتهاء البحث عن الوسائط ثم حاول مجددًا");
+        if(!new GalleryStore(app,scene).delete()||!deleteOffline(scene))
+            throw new IOException("لم يكتمل حذف ملفات المكان؛ حاول مجددًا");
+        File directory=mediaDir().getCanonicalFile();
+        File[] files=directory.listFiles();
+        if(files!=null)for(File file:files){
+            if(file.getName().startsWith(scene.id+".")&&file.getCanonicalFile().getParentFile().equals(directory)&&file.isFile()&&!file.delete())
+                throw new IOException("تعذر حذف ملف تنزيل جزئي؛ حاول مجددًا");
+        }
+        world.remove(scene);scenes.removeIf(s->s.id.equals(scene.id));save();
+    }
     public long offlineBytes(){
         long n=0;for(Scene s:scenes)if(s.isOffline())n+=new File(s.localMedia).length();
         return n;
