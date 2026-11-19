@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>أطلس الرضي التفاعلي</title>
+<link rel="stylesheet" href="vendor/leaflet.css">
+<script src="vendor/leaflet.js"></script>
+<style>
+:root{--bg:#050811;--panel:rgba(11,18,32,.97);--panel2:#111c2e;--gold:#f59e0b;--cyan:#06b6d4;--text:#f8fafc;--muted:#94a3b8;--line:#334155}
+*{box-sizing:border-box}html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);height:100vh;overflow:hidden;font-family:Tahoma,"Segoe UI",sans-serif;display:flex;flex-direction:column}
+button,input{font:inherit}
+button{border:1px solid #475569;border-radius:8px;background:#1e293b;color:#e2e8f0;padding:8px 12px;cursor:pointer;white-space:nowrap}
+button.active{background:var(--gold);color:#111;border-color:var(--gold)}
+:focus{outline:none}
+:focus-visible,.kbd :focus{outline:3px solid var(--cyan)!important;outline-offset:2px;box-shadow:0 0 0 6px rgba(6,182,212,.25)}
+/* V47 header: two rows, nothing can overlap the search box any more */
+#top{background:var(--panel);border-bottom:2px solid var(--gold);padding:8px 14px 6px;z-index:1200;position:relative;flex-shrink:0;display:flex;flex-direction:column;gap:7px}
+#row1{display:flex;align-items:center;gap:10px;min-width:0}
+.brand{color:var(--gold);font-weight:800;white-space:nowrap;font-size:19px}
+#count{color:var(--cyan);font-weight:600}
+#searchWrap{flex:1;display:flex;align-items:center;gap:6px;min-width:160px;max-width:560px;margin-inline-start:auto;position:relative}
+#search{flex:1;min-width:0;background:#0f172a;color:#fff;border:1px solid var(--cyan);border-radius:8px;padding:8px 12px}
+#searchClear{padding:6px 10px}
+#tools{display:flex;gap:6px;flex-shrink:0}
+#tabs{display:flex;flex-wrap:wrap;gap:6px}
+#tabs button{padding:6px 12px}
+#tabs button .n{opacity:.75;font-size:.85em;margin-inline-start:4px}
+#workspace{flex:1;min-height:0;display:flex}
+#panel{width:430px;max-width:42vw;background:var(--panel);padding:12px;display:flex;flex-direction:column;gap:9px;overflow:auto;border-left:2px solid var(--line);scrollbar-width:thin}
+#hero{height:170px;min-height:170px;width:100%;object-fit:cover;border:2px solid var(--gold);border-radius:12px;background:#111;cursor:pointer}
+#gallery{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}
+.g{height:48px;padding:0;overflow:hidden;opacity:.7}.g.active{opacity:1;border-color:var(--gold)}.g img{width:100%;height:100%;object-fit:cover}
+#metaLine{color:var(--muted);font-size:13px}
+#title{font-size:22px;color:var(--gold);font-weight:800;line-height:1.4}
+#region{color:#e2e8f0}
+#desc{line-height:1.7;background:#1e293b;padding:10px;border-radius:8px;border-right:3px solid var(--gold)}
+#actions{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+#actions button{padding:8px 6px}
+#favBtn.on{color:#111;background:#fde68a;border-color:#fde68a}
+.sec{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px}
+.sec h3{margin:0 0 7px;font-size:15px;color:var(--cyan)}
+#facts{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:14px}
+#facts dt{color:var(--muted)}#facts dd{margin:0}
+#wikiText{line-height:1.8;font-size:15px;color:#e2e8f0;white-space:pre-line}
+#wikiText.loading{color:var(--muted)}
+#wikiMore{margin-top:8px}
+#nearby{display:flex;flex-direction:column;gap:5px}
+#nearby button{text-align:right;white-space:normal;display:flex;justify-content:space-between;gap:8px}
+#nearby small{color:var(--cyan);white-space:nowrap}
+#stage{flex:1;position:relative;min-width:0}
+#map{width:100%;height:100%;background:#0b1220}
+#map:focus-visible{outline-offset:-4px}
+#map.exploring{outline:4px solid var(--gold)!important;outline-offset:-4px}
+#mapHint.on{color:#111;background:var(--gold);border-color:var(--gold)}
+#mapHint{position:absolute;bottom:10px;right:10px;z-index:800;background:rgba(5,8,17,.82);border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:12px;color:var(--muted);pointer-events:none}
+#spaceCard{display:none;position:absolute;inset:0;z-index:700;align-items:center;justify-content:center;background:radial-gradient(circle at 60% 35%,#1e3a8a55,transparent 55%),#020617ee;text-align:center;padding:30px}
+#spaceCard.visible{display:flex}#spaceCard div{max-width:560px}#spaceCard b{display:block;font-size:30px;color:var(--gold);margin-bottom:10px}
+#timeline{height:112px;display:flex;gap:8px;overflow-x:auto;padding:9px;background:#060a12;border-top:2px solid var(--gold);flex-shrink:0}
+.card{min-width:180px;max-width:240px;text-align:right;padding:7px;white-space:normal}.card small{color:var(--cyan)}.card.active{background:#0f172a;border-color:var(--gold);color:#f8fafc}.card.active strong{color:#fde68a}.card .star{color:#fde68a}
+#overlay{display:none;position:fixed;inset:0;z-index:3000;background:rgba(2,4,8,.96);align-items:center;justify-content:center;padding:25px}#overlay.visible{display:flex}
+#overlayBox{max-width:88%;max-height:88%;background:#0f172a;border:3px solid var(--gold);border-radius:15px;overflow:hidden;text-align:center}
+#fullImg{max-width:100%;max-height:70vh;object-fit:contain;background:#000}#fullCap{padding:12px}
+#toast{position:fixed;bottom:130px;left:50%;transform:translateX(-50%);background:#0f172a;border:1px solid var(--gold);padding:8px 16px;border-radius:10px;z-index:4000;opacity:0;transition:opacity .25s;pointer-events:none}
+#toast.show{opacity:1}
+.leaflet-container{font-family:Tahoma,sans-serif}
+.leaflet-control-attribution{font-size:10px!important;background:rgba(5,8,17,.7)!important;color:#cbd5e1!important}.leaflet-control-attribution a{color:#67e8f9!important}
+.leaflet-tooltip.atlas-tip{background:#0f172a;color:#fde68a;border:1px solid var(--gold);font-weight:700;direction:rtl}
+.empty{color:#94a3b8;text-align:center;padding:20px}
+@media(max-width:900px){#panel{width:360px;max-width:48vw}.brand{font-size:16px}#tools button{padding:6px 8px}}
+</style></head><body>
+<div id="top">
+ <div id="row1">
+  <div class="brand">🛡️ أطلس الرضي <span id="count">(500)</span></div>
+  <div id="searchWrap"><input id="search" type="search" placeholder="ابحث عن مكان أو حقبة أو شخصية..." autocomplete="off" oninput="onSearch(this.value)"><button id="searchClear" title="مسح البحث" onclick="clearSearch()">✕</button></div>
+  <div id="tools"><button id="labelsBtn" class="active" onclick="toggleLabels()" title="أسماء الدول والمدن على صورة القمر الصناعي">🏷️ الأسماء</button><button id="homeBtn" onclick="resetView()" title="عرض العالم">🌍 العالم</button></div>
+ </div>
+ <div id="tabs"></div>
+</div>
+<div id="workspace"><aside id="panel">
+ <img id="hero" alt="صورة المحطة" tabindex="0" onclick="openOverlay()">
+ <div id="gallery"></div>
+ <div id="photoNav" style="display:flex;gap:8px;align-items:center;justify-content:space-around"><button onclick="prevPhoto()">❮</button><span id="photoCounter">0 / 10</span><button onclick="nextPhoto()">❯</button></div>
+ <div id="galleryStatus" style="font-size:12px;color:#e2e8f0"></div><div id="stationPhotoCredit" style="font-size:12px;color:#94a3b8"></div>
+ <div id="metaLine"><span id="period"></span> | <span id="index"></span></div>
+ <div id="title"></div><div id="region"></div><div id="desc"></div>
+ <div id="actions"><button onclick="prevNode()">❮ السابق</button><button onclick="speakCurrent()" id="readBtn">🎙 قراءة</button><button id="favBtn" onclick="toggleFav()">☆ مفضلة</button><button onclick="nextNode()">التالي ❯</button></div>
+ <div class="sec"><h3>📌 بطاقة المعلومات</h3><dl id="facts"></dl></div>
+ <div class="sec"><h3>📖 نبذة موسّعة</h3><div id="wikiText"></div><button id="wikiMore" onclick="openArticle()">🔗 اقرأ المقال كاملًا</button></div>
+ <div class="sec" id="nearSec"><h3>🧭 محطات قريبة</h3><div id="nearby"></div></div>
+</aside><main id="stage"><div id="map" tabindex="0" aria-label="الخريطة"></div><div id="spaceCard"><div><b id="spaceTitle"></b><span id="spaceText"></span></div></div><div id="mapHint">على الخريطة: الأسهم للتحريك · OK للتقريب · رجوع للخروج</div></main></div>
+<div id="timeline"></div>
+<div id="overlay" onclick="closeOverlay()"><div id="overlayBox" onclick="event.stopPropagation()"><img id="fullImg" alt="صورة مكبرة"><div id="fullCap"></div></div></div>
+<div id="toast"></div>
+<script src="atlas_photo_seed.js"></script><script src="atlas_extra_v46.js"></script>
+<script>
+const ATLAS_DATA=[{"id":1,"cat":"history","title":"حضارة سومر وابتكار الكتابة","period":"3200 ق.م","region":"أور والوركاء - العراق","lat":31.322,"lng":45.636,"img":"https://images.unsplash.com/photo-1599839575945-a9e5af0b3fa5?auto=format&fit=crop&w=1200&q=80","desc":"نشوء المدن السومرية وتطور الكتابة المسمارية والإدارة المنظمة."},{"id":2,"cat":"history","title":"عصر بناة الأهرامات","period":"2560 ق.م","region":"الجيزة - مصر","lat":29.979,"lng":31.134,"img":"https://images.unsplash.com/photo-1539650116574-8efeb43e2750?auto=format&fit=crop&w=1200&q=80","desc":"تشييد أهرامات الجيزة بوصفها من أبرز منجزات العمارة في مصر القديمة."},{"id":3,"cat":"history","title":"حضارة وادي السند","period":"2500 ق.م","region":"موهينجو دارو - باكستان","lat":27.329,"lng":68.138,"img":"https://images.unsplash.com/photo-1564507592333-c60657eea523?auto=format&fit=crop&w=1200&q=80","desc":"مدن مخططة وشبكات صرف متقدمة في وادي السند."},{"id":4,"cat":"history","title":"الإمبراطورية الأكادية","period":"2334 ق.م","region":"بلاد الرافدين","lat":33.1,"lng":44.1,"img":"https://images.unsplash.com/photo-1543783207-ec64e4d95325?auto=format&fit=crop&w=1200&q=80","desc":"قيام دولة واسعة وحّدت مدنًا متعددة في بلاد الرافدين."},{"id":5,"cat":"history","title":"شريعة حمورابي","period":"1750 ق.م","region":"بابل - العراق","lat":32.536,"lng":44.42,"img":"https://images.unsplash.com/photo-1580618672591-eb180b1a973f?auto=format&fit=crop&w=1200&q=80","desc":"مجموعة قوانين مدونة نظمت جوانب من القضاء والتجارة والمجتمع."},{"id":6,"cat":"history","title":"الدولة الحديثة في مصر","period":"1550 ق.م","region":"طيبة - مصر","lat":25.718,"lng":32.658,"img":"https://images.unsplash.com/photo-1599839575945-a9e5af0b3fa5?auto=format&fit=crop&w=1200&q=80","desc":"مرحلة توسع وازدهار سياسي ومعماري في مصر القديمة."},{"id":7,"cat":"history","title":"الفينيقيون والملاحة","period":"1200 ق.م","region":"صور - لبنان","lat":33.27,"lng":35.203,"img":"https://images.unsplash.com/photo-1539650116574-8efeb43e2750?auto=format&fit=crop&w=1200&q=80","desc":"ازدهار التجارة البحرية وتأسيس مراكز على سواحل المتوسط."},{"id":8,"cat":"history","title":"مملكة سبأ وسد مأرب","period":"950 ق.م","region":"مأرب - اليمن","lat":15.418,"lng":45.325,"img":"https://images.unsplash.com/photo-1564507592333-c60657eea523?auto=format&fit=crop&w=1200&q=80","desc":"ازدهار الري والتجارة عبر طرق البخور في جنوب الجزيرة العربية."},{"id":9,"cat":"history","title":"الإمبراطورية الآشورية","period":"900 ق.م","region":"نينوى - العراق","lat":36.359,"lng":43.152,"img":"https://images.unsplash.com/photo-1543783207-ec64e4d95325?auto=format&fit=crop&w=1200&q=80","desc":"قوة سياسية وعسكرية تركت آثارًا ومدنًا كبرى في شمال الرافدين."},{"id":10,"cat":"history","title":"الألعاب الأولمبية القديمة","period":"776 ق.م","region":"أولمبيا - اليونان","lat":37.638,"lng":21.63,"img":"https://images.unsplash.com/photo-1580618672591-eb180b1a973f?auto=format&fit=crop&w=1200&q=80","desc":"بدء تقليد رياضي وديني مؤثر في العالم اليوناني القديم."},{"id":11,"cat":"history","title":"تأسيس روما","period":"753 ق.م","region":"روما - إيطاليا","lat":41.902,"lng":12.496,"img":"https://images.unsplash.com/photo-1599839575945-a9e5af0b3fa5?auto=format&fit=crop&w=1200&q=80","desc":"بداية المدينة التي أصبحت مركزًا لجمهورية ثم إمبراطورية واسعة."},{"id":12,"cat":"history","title":"الإمبراطورية الأخمينية","period":"550 ق.م","region":"برسبوليس - إيران","lat":29.935,"lng":52.891,"img":"https://images.unsplash.com/photo-1539650116574-8efeb43e2750?auto=format&fit=crop&w=1200&q=80","desc":"إمبراطورية واسعة ربطت مناطق متعددة بطرق وإدارة مركزية."},{"id":13,"cat":"history","title":"أثينا الكلاسيكية","period":"508 ق.م","region":"أثينا - اليونان","lat":37.983,"lng":23.727,"img":"https://images.unsplash.com/photo-1564507592333-c60657eea523?auto=format&fit=crop&w=1200&q=80","desc":"مرحلة بارزة في الفكر والفنون ونظم الحكم في اليونان القديمة."},{"id":14,"cat":"history","title":"طريق الحرير القديم","period":"130 ق.م","region":"آسيا الوسطى","lat":40.0,"lng":67.0,"img":"https://images.unsplash.com/photo-1543783207-ec64e4d95325?auto=format&fit=crop&w=1200&q=80","desc":"شبكات تجارية وثقافية ربطت شرق آسيا بغربها."},{"id":15,"cat":"history","title":"مملكة الأنباط","period":"100 ق.م","region":"البتراء - الأردن","lat":30.328,"lng":35.444,"img":"https://images.unsplash.com/photo-1580618672591-eb180b1a973f?auto=format&fit=crop&w=1200&q=80","desc":"حضارة تجارية اشتهرت بنحت الصخر وإدارة المياه في البيئة الصحراوية."},{"id":16,"cat":"history","title":"الإمبراطورية الرومانية","period":"27 ق.م","region":"روما - إيطاليا","lat":41.902,"lng":12.496,"img":"https://images.unsplash.com/photo-1599839575945-a9e5af0b3fa5?auto=format&fit=crop&w=1200&q=80","desc":"مرحلة توسع سياسي وهندسي أثرت في مناطق واسعة حول المتوسط."},{"id":17,"cat":"history","title":"ازدهار مملكة أكسوم","period":"100 م","region":"أكسوم - إثيوبيا","lat":14.13,"lng":38.72,"img":"https://images.unsplash.com/photo-1539650116574-8efeb43e2750?auto=format&fit=crop&w=1200&q=80","desc":"مملكة تجارية مهمة ربطت البحر الأحمر وشرق أفريقيا."},{"id":18,"cat":"history","title":"طريق البخور","period":"200 م","region":"الجزيرة العربية","lat":20.0,"lng":44.0,"img":"https://images.unsplash.com/photo-1564507592333-c60657eea523?auto=format&fit=crop&w=1200&q=80","desc":"مسار تجاري نقل اللبان والتوابل بين جنوب الجزيرة والشام والمتوسط."},{"id":19,"cat":"history","title":"سقوط روما الغربية","period":"476 م","region":"روما - إيطاليا","lat":41.902,"lng":12.496,"img":"https://images.unsplash.com/photo-1543783207-ec64e4d95325?auto=format&fit=crop&w=1200&q=80","desc":"تحول سياسي أنهى الحكم الإمبراطوري الروماني في الغرب."},{"id":20,"cat":"history","title":"الهجرة النبوية","period":"622 م","region":"المدينة المنورة - السعودية","lat":24.467,"lng":39.611,"img":"https://images.unsplash.com/photo-1580618672591-eb180b1a973f?auto=format&fit=crop&w=1200&q=80","desc":"حدث مفصلي انطلق منه التقويم الهجري وتأسس مجتمع المدينة."},{"id":21,"cat":"history","title":"معركة اليرموك","period":"636 م","region":"وادي اليرموك","lat":32.814,"lng":35.954,"img":"https://images.unsplash.com/photo-1599839575945-a9e5af0b3fa5?auto=format&fit=crop&w=1200&q=80","desc":"معركة مفصلية في انتقال السيطرة السياسية على بلاد الشام."},{"id":22,"cat":"history","title":"معركة القادسية","period":"636 م","region":"العراق","lat":31.9,"lng":44.5,"img":"https://images.unsplash.com/photo-1539650116574-8efeb43e2750?auto=format&fit=crop&w=1200&q=80","desc":"إحدى المعارك الحاسمة في تاريخ المنطقة خلال القرن السابع."},{"id":23,"cat":"history","title":"الدولة الأموية","period":"661 م","region":"دمشق - سوريا","lat":33.511,"lng":36.306,"img":"https://images.unsplash.com/photo-1564507592333-c60657eea523?auto=format&fit=crop&w=1200&q=80","desc":"اتخذت دمشق عاصمة وامتدت الدولة عبر أقاليم واسعة."},{"id":24,"cat":"history","title":"تأسيس القيروان","period":"670 م","region":"القيروان - تونس","lat":35.678,"lng":10.096,"img":"https://images.unsplash.com/photo-1543783207-ec64e4d95325?auto=format&fit=crop&w=1200&q=80","desc":"مدينة تاريخية أصبحت مركزًا علميًا وحضاريًا في شمال أفريقيا."},{"id":25,"cat":"history","title":"فتح الأندلس","period":"711 م","region":"الأندلس","lat":36.14,"lng":-5.353,"img":"https://images.unsplash.com/photo-1580618672591-eb180b1a973f?auto=format&fit=crop&w=1200&q=80","desc":"بداية مرحلة تاريخية طويلة من الحضور الإسلامي في شبه الجزيرة الإيبيرية."},{"id":26,"cat":"history","title":"تأسيس بغداد","period":"762 م","region":"بغداد - العراق","lat":33.315,"lng":44.366,"img":"https://images.unsplash.com/photo-1599839575945-a9e5af0b3fa5?auto=format&fit=crop&w=1200&q=80","desc":"إنشاء عاصمة عباسية أصبحت مركزًا للإدارة والعلم والتجارة."},{"id":27,"cat":"history","title":"بيت الحكمة","period":"830 م","region":"بغداد - العراق","lat":33.315,"lng":44.366,"img":"https://images.unsplash.com/photo-1539650116574-8efeb43e2750?auto=format&fit=crop&w=1200&q=80","desc":"رمز لحركة الترجمة والبحث العلمي في العصر العباسي."},{"id":28,"cat":"history","title":"ازدهار قرطبة","period":"929 م","region":"قرطبة - إسبانيا","lat":37.888,"lng":-4.779,"img":"https://images.unsplash.com/photo-1564507592333-c60657eea523?auto=format&fit=crop&w=1200&q=80","desc":"ازدهار عمراني وعلمي وثقافي في الأندلس."},{"id":29,"cat":"history","title":"تأسيس الأزهر","period":"970 م","region":"القاهرة - مصر","lat":30.045,"lng":31.262,"img":"https://images.unsplash.com/photo-1543783207-ec64e4d95325?auto=format&fit=crop&w=1200&q=80","desc":"نشأة مؤسسة تعليمية ودينية عريقة في القاهرة."},{"id":30,"cat":"history","title":"جامعة القرويين","period":"859 م","region":"فاس - المغرب","lat":34.064,"lng":-4.973,"img":"https://images.unsplash.com/photo-1580618672591-eb180b1a973f?auto=format&fit=crop&w=1200&q=80","desc":"مركز علمي تاريخي ارتبط بمدينة فاس وتقاليدها التعليمية."},{"id":31,"cat":"history","title":"الدولة الفاطمية في القاهرة","period":"969 م","region":"القاهرة - مصر","lat":30.044,"lng":31.236,"img":"https://images.unsplash.com/photo-1599839575945-a9e5af0b3fa5?auto=format&fit=crop&w=1200&q=80","desc":"تأسيس القاهرة مركزًا سياسيًا وعمرانيًا مهمًا."},{"id":32,"cat":"history","title":"الحملات الصليبية","period":"1096 م","region":"شرق المتوسط","lat":33.0,"lng":35.0,"img":"https://images.unsplash.com/photo-1539650116574-8efeb43e2750?auto=format&fit=crop&w=1200&q=80","desc":"سلسلة حملات عسكرية وسياسية أثرت في شرق المتوسط."},{"id":33,"cat":"history","title":"معركة حطين","period":"1187 م","region":"حطين - فلسطين","lat":32.801,"lng":35.459,"img":"https://images.unsplash.com/photo-1564507592333-c60657eea523?auto=format&fit=crop&w=1200&q=80","desc":"معركة حاسمة سبقت استعادة القدس على يد صلاح الدين."},{"id":34,"cat":"history","title":"ازدهار تمبكتو","period":"1300 م","region":"تمبكتو - مالي","lat":16.766,"lng":-3.002,"img":"https://images.unsplash.com/photo-1543783207-ec64e4d95325?auto=format&fit=crop&w=1200&q=80","desc":"مركز للتجارة والتعليم والمخطوطات في غرب أفريقيا."},{"id":35,"cat":"history","title":"رحلات ابن بطوطة","period":"1325 م","region":"طنجة - المغرب","lat":35.759,"lng":-5.834,"img":"https://images.unsplash.com/photo-1580618672591-eb180b1a973f?auto=format&fit=crop&w=1200&q=80","desc":"رحلات واسعة وثقت مجتمعات ومدنًا عبر أفريقيا وآسيا وأوروبا."},{"id":36,"cat":"history","title":"سقوط بغداد","period":"1258 م","region":"بغداد - العراق","lat":33.315,"lng":44.366,"img":"https://images.unsplash.com/photo-1599839575945-a9e5af0b3fa5?auto=format&fit=crop&w=1200&q=80","desc":"حدث سياسي كبير أنهى مرحلة من الحكم العباسي في بغداد."},{"id":37,"cat":"history","title":"قيام الدولة العثمانية","period":"1299 م","region":"الأناضول","lat":39.0,"lng":30.0,"img":"https://images.unsplash.com/photo-1539650116574-8efeb43e2750?auto=format&fit=crop&w=1200&q=80","desc":"بداية دولة توسعت لاحقًا عبر ثلاث قارات."},{"id":38,"cat":"history","title":"سقوط الأندلس","period":"1492 م","region":"غرناطة - إسبانيا","lat":37.177,"lng":-3.598,"img":"https://images.unsplash.com/photo-1564507592333-c60657eea523?auto=format&fit=crop&w=1200&q=80","desc":"انتهاء الحكم الإسلامي في غرناطة وتغير المشهد السياسي الإيبيري."},{"id":39,"cat":"history","title":"رحلة كولومبوس","period":"1492 م","region":"المحيط الأطلسي","lat":28.0,"lng":-40.0,"img":"https://images.unsplash.com/photo-1543783207-ec64e4d95325?auto=format&fit=crop&w=1200&q=80","desc":"رحلة بحرية فتحت مرحلة جديدة من الاتصال بين أوروبا والأمريكتين."},{"id":40,"cat":"history","title":"الدوران حول الأرض","period":"1519 م","region":"إشبيلية - إسبانيا","lat":37.389,"lng":-5.984,"img":"https://images.unsplash.com/photo-1580618672591-eb180b1a973f?auto=format&fit=crop&w=1200&q=80","desc":"انطلاق الحملة التي أكملت أول طواف بحري معروف حول الأرض."},{"id":41,"cat":"history","title":"العصر الصفوي","period":"1501 م","region":"تبريز - إيران","lat":38.08,"lng":46.291,"img":"https://images.unsplash.com/photo-1599839575945-a9e5af0b3fa5?auto=format&fit=crop&w=1200&q=80","desc":"قيام دولة مؤثرة سياسيًا وثقافيًا في إيران وما حولها."},{"id":42,"cat":"history","title":"إمبراطورية المغول في الهند","period":"1526 م","region":"دلهي - الهند","lat":28.613,"lng":77.209,"img":"https://images.unsplash.com/photo-1539650116574-8efeb43e2750?auto=format&fit=crop&w=1200&q=80","desc":"مرحلة سياسية وفنية تركت عمارة مميزة في شبه القارة الهندية."},{"id":43,"cat":"history","title":"الثورة الصناعية","period":"1760 م","region":"بريطانيا","lat":52.5,"lng":-1.9,"img":"https://images.unsplash.com/photo-1564507592333-c60657eea523?auto=format&fit=crop&w=1200&q=80","desc":"تحول كبير في الإنتاج والطاقة والنقل والمجتمع."},{"id":44,"cat":"history","title":"اكتشاف حجر رشيد","period":"1799 م","region":"رشيد - مصر","lat":31.404,"lng":30.417,"img":"https://images.unsplash.com/photo-1543783207-ec64e4d95325?auto=format&fit=crop&w=1200&q=80","desc":"اكتشاف ساعد لاحقًا في فك رموز الكتابة المصرية القديمة."},{"id":45,"cat":"history","title":"افتتاح قناة السويس","period":"1869 م","region":"السويس - مصر","lat":30.585,"lng":32.266,"img":"https://images.unsplash.com/photo-1580618672591-eb180b1a973f?auto=format&fit=crop&w=1200&q=80","desc":"ممر بحري ربط البحر المتوسط بالبحر الأحمر."},{"id":46,"cat":"history","title":"استرداد الرياض","period":"1902 م","region":"الرياض - السعودية","lat":24.631,"lng":46.713,"img":"https://images.unsplash.com/photo-1599839575945-a9e5af0b3fa5?auto=format&fit=crop&w=1200&q=80","desc":"حدث محوري في مسار توحيد المملكة العربية السعودية."},{"id":47,"cat":"history","title":"توحيد المملكة العربية السعودية","period":"1932 م","region":"الرياض - السعودية","lat":24.713,"lng":46.675,"img":"https://images.unsplash.com/photo-1539650116574-8efeb43e2750?auto=format&fit=crop&w=1200&q=80","desc":"إعلان توحيد البلاد باسم المملكة العربية السعودية."},{"id":48,"cat":"history","title":"تأسيس الأمم المتحدة","period":"1945 م","region":"سان فرانسيسكو - الولايات المتحدة","lat":37.774,"lng":-122.419,"img":"https://images.unsplash.com/photo-1564507592333-c60657eea523?auto=format&fit=crop&w=1200&q=80","desc":"إنشاء منظمة دولية للتعاون بين الدول بعد الحرب العالمية الثانية."},{"id":49,"cat":"history","title":"الهبوط على القمر","period":"1969 م","region":"القمر","lat":0.674,"lng":23.473,"img":"https://images.unsplash.com/photo-1543783207-ec64e4d95325?auto=format&fit=crop&w=1200&q=80","desc":"هبوط بشري تاريخي على سطح القمر ضمن برنامج أبولو."},{"id":50,"cat":"history","title":"ولادة الشبكة العالمية","period":"1989 م","region":"جنيف - سويسرا","lat":46.233,"lng":6.055,"img":"https://images.unsplash.com/photo-1580618672591-eb180b1a973f?auto=format&fit=crop&w=1200&q=80","desc":"اقتراح نظام الويب الذي غيّر نشر المعلومات والوصول إليها."},{"id":51,"cat":"legends","title":"الخوارزمي","period":"عالم رياضيات","region":"خوارزم / بغداد","lat":33.315,"lng":44.366,"img":"https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=1200&q=80","desc":"أسهمت أعماله في تطور الجبر والحساب."},{"id":52,"cat":"legends","title":"ابن الهيثم","period":"عالم بصريات","region":"البصرة / القاهرة","lat":30.044,"lng":31.236,"img":"https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=1200&q=80","desc":"قدّم أعمالًا مؤثرة في البصريات والمنهج التجريبي."},{"id":53,"cat":"legends","title":"ابن سينا","period":"طبيب وفيلسوف","region":"بخارى","lat":39.768,"lng":64.455,"img":"https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=1200&q=80","desc":"ترك مؤلفات مؤثرة في الطب والفلسفة."},{"id":54,"cat":"legends","title":"الرازي","period":"طبيب وكيميائي","region":"الري - إيران","lat":35.593,"lng":51.439,"img":"https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=1200&q=80","desc":"ألّف في الطب والكيمياء ووصف أمراضًا وطرق علاج."},{"id":55,"cat":"legends","title":"الإدريسي","period":"جغرافي","region":"صقلية","lat":38.115,"lng":13.361,"img":"https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=1200&q=80","desc":"أنجز خرائط ووصفًا جغرافيًا واسعًا للعالم المعروف."},{"id":56,"cat":"legends","title":"ابن بطوطة","period":"رحالة","region":"طنجة - المغرب","lat":35.759,"lng":-5.834,"img":"https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=1200&q=80","desc":"وثق رحلات طويلة عبر مناطق واسعة من العالم."},{"id":57,"cat":"legends","title":"ابن خلدون","period":"مؤرخ","region":"تونس","lat":36.806,"lng":10.181,"img":"https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=1200&q=80","desc":"اشتهر بالمقدمة وتحليل العمران والمجتمع والتاريخ."},{"id":58,"cat":"legends","title":"جابر بن حيان","period":"عالم","region":"الكوفة","lat":32.03,"lng":44.4,"img":"https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=1200&q=80","desc":"ارتبط اسمه بتاريخ الكيمياء والتجارب العلمية."},{"id":59,"cat":"legends","title":"الفارابي","period":"فيلسوف","region":"فاراب","lat":42.85,"lng":68.3,"img":"https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=1200&q=80","desc":"كتب في المنطق والفلسفة والموسيقى والسياسة."},{"id":60,"cat":"legends","title":"الزهراوي","period":"طبيب وجراح","region":"قرطبة","lat":37.888,"lng":-4.779,"img":"https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=1200&q=80","desc":"ألّف موسوعة طبية وصمم أدوات جراحية."},{"id":61,"cat":"legends","title":"عباس بن فرناس","period":"مخترع","region":"قرطبة","lat":37.888,"lng":-4.779,"img":"https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=1200&q=80","desc":"ارتبط بتجارب مبكرة في الطيران وصناعة الأدوات."},{"id":62,"cat":"legends","title":"البيروني","period":"عالم موسوعي","region":"خوارزم","lat":41.55,"lng":60.63,"img":"https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=1200&q=80","desc":"بحث في الفلك والجغرافيا والرياضيات وقياس الأرض."},{"id":63,"cat":"legends","title":"خالد بن الوليد","period":"قائد عسكري","region":"حمص - سوريا","lat":34.732,"lng":36.713,"img":"https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=1200&q=80","desc":"قائد بارز في التاريخ الإسلامي المبكر."},{"id":64,"cat":"legends","title":"طارق بن زياد","period":"قائد عسكري","region":"جبل طارق","lat":36.14,"lng":-5.353,"img":"https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=1200&q=80","desc":"قاد العبور إلى شبه الجزيرة الإيبيرية سنة 711م."},{"id":65,"cat":"legends","title":"صلاح الدين الأيوبي","period":"قائد","region":"القدس / دمشق","lat":31.776,"lng":35.234,"img":"https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=1200&q=80","desc":"ارتبط بتوحيد الجبهة واستعادة القدس بعد معركة حطين."},{"id":66,"cat":"legends","title":"الملك عبدالعزيز آل سعود","period":"مؤسس المملكة","region":"الرياض","lat":24.631,"lng":46.713,"img":"https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=1200&q=80","desc":"قاد مسار توحيد المملكة العربية السعودية."},{"id":67,"cat":"legends","title":"أحمد زويل","period":"عالم كيمياء","region":"الإسكندرية / القاهرة","lat":30.044,"lng":31.236,"img":"https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=1200&q=80","desc":"اشتهر بأبحاثه في كيمياء الفيمتو."},{"id":68,"cat":"legends","title":"سميرة موسى","period":"عالمة","region":"القاهرة - مصر","lat":30.044,"lng":31.236,"img":"https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=1200&q=80","desc":"باحثة مصرية في الفيزياء النووية."},{"id":69,"cat":"legends","title":"مريم الإسطرلابي","period":"عالمة وصانعة أدوات","region":"حلب - سوريا","lat":36.202,"lng":37.134,"img":"https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=1200&q=80","desc":"ارتبط اسمها بصناعة الأسطرلاب وتطوير أدوات الرصد."},{"id":70,"cat":"legends","title":"حسن فتحي","period":"معماري","region":"القاهرة - مصر","lat":30.044,"lng":31.236,"img":"https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=1200&q=80","desc":"اشتهر بعمارة تراعي البيئة والمواد المحلية."},{"id":71,"cat":"cities","title":"مكة المكرمة","period":"مدينة مقدسة","region":"السعودية","lat":21.422,"lng":39.826,"img":"https://images.unsplash.com/photo-1477959858617-67f30bc75b82?auto=format&fit=crop&w=1200&q=80","desc":"مدينة ذات مكانة دينية وتاريخية مركزية."},{"id":72,"cat":"cities","title":"المدينة المنورة","period":"مدينة تاريخية","region":"السعودية","lat":24.467,"lng":39.611,"img":"https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?auto=format&fit=crop&w=1200&q=80","desc":"مدينة الهجرة النبوية والمسجد النبوي."},{"id":73,"cat":"cities","title":"الرياض","period":"عاصمة حديثة","region":"السعودية","lat":24.713,"lng":46.675,"img":"https://images.unsplash.com/photo-1519501025264-65ba15a82390?auto=format&fit=crop&w=1200&q=80","desc":"عاصمة المملكة ومركز إداري واقتصادي كبير."},{"id":74,"cat":"cities","title":"القاهرة","period":"مدينة تاريخية","region":"مصر","lat":30.044,"lng":31.236,"img":"https://images.unsplash.com/photo-1534430480872-3498386e7856?auto=format&fit=crop&w=1200&q=80","desc":"مدينة كبرى تضم طبقات متعددة من التاريخ والعمارة."},{"id":75,"cat":"cities","title":"بغداد","period":"مدينة حضارية","region":"العراق","lat":33.315,"lng":44.366,"img":"https://images.unsplash.com/photo-1444723121867-7a241cacace9?auto=format&fit=crop&w=1200&q=80","desc":"عاصمة عباسية تاريخية ومركز للعلم والأدب."},{"id":76,"cat":"cities","title":"دمشق","period":"مدينة عريقة","region":"سوريا","lat":33.513,"lng":36.276,"img":"https://images.unsplash.com/photo-1477959858617-67f30bc75b82?auto=format&fit=crop&w=1200&q=80","desc":"إحدى أقدم المدن المأهولة ومركز تاريخي في بلاد الشام."},{"id":77,"cat":"cities","title":"القدس","period":"مدينة تاريخية","region":"فلسطين","lat":31.768,"lng":35.213,"img":"https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?auto=format&fit=crop&w=1200&q=80","desc":"مدينة ذات أهمية دينية وتاريخية عالمية."},{"id":78,"cat":"cities","title":"إسطنبول","period":"مدينة عابرة للقارات","region":"تركيا","lat":41.008,"lng":28.978,"img":"https://images.unsplash.com/photo-1519501025264-65ba15a82390?auto=format&fit=crop&w=1200&q=80","desc":"مدينة تربط آسيا بأوروبا عبر مضيق البوسفور."},{"id":79,"cat":"cities","title":"قرطبة","period":"مدينة أندلسية","region":"إسبانيا","lat":37.888,"lng":-4.779,"img":"https://images.unsplash.com/photo-1534430480872-3498386e7856?auto=format&fit=crop&w=1200&q=80","desc":"مركز بارز للعلوم والعمارة في تاريخ الأندلس."},{"id":80,"cat":"cities","title":"سمرقند","period":"مدينة طريق الحرير","region":"أوزبكستان","lat":39.654,"lng":66.959,"img":"https://images.unsplash.com/photo-1444723121867-7a241cacace9?auto=format&fit=crop&w=1200&q=80","desc":"محطة تاريخية مهمة على طرق التجارة بين الشرق والغرب."},{"id":81,"cat":"nature","title":"الربع الخالي","period":"صحراء","region":"شبه الجزيرة العربية","lat":20.0,"lng":50.0,"img":"https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=1200&q=80","desc":"من أكبر المساحات الرملية المتصلة في العالم."},{"id":82,"cat":"nature","title":"جبال السروات","period":"جبال","region":"السعودية","lat":19.5,"lng":42.5,"img":"https://images.unsplash.com/photo-1426604966848-d7adac902bff?auto=format&fit=crop&w=1200&q=80","desc":"سلسلة جبلية تمتد بمحاذاة غرب الجزيرة العربية."},{"id":83,"cat":"nature","title":"وادي الديسة","period":"وادي","region":"تبوك - السعودية","lat":27.633,"lng":36.533,"img":"https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=80","desc":"وادي تحيط به تكوينات صخرية شاهقة وينابيع ونخيل."},{"id":84,"cat":"nature","title":"جزر فرسان","period":"جزر","region":"جازان - السعودية","lat":16.7,"lng":42.0,"img":"https://images.unsplash.com/photo-1433086966358-54859d0ed716?auto=format&fit=crop&w=1200&q=80","desc":"أرخبيل يتميز بالتنوع البحري والساحلي."},{"id":85,"cat":"nature","title":"شلالات فيكتوريا","period":"شلالات","region":"زامبيا / زيمبابوي","lat":-17.924,"lng":25.857,"img":"https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&q=80","desc":"شلالات واسعة على نهر الزامبيزي."},{"id":86,"cat":"nature","title":"غابات الأمازون","period":"غابات مطيرة","region":"أمريكا الجنوبية","lat":-3.465,"lng":-62.215,"img":"https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=1200&q=80","desc":"نظام بيئي واسع شديد التنوع حول حوض الأمازون."},{"id":87,"cat":"nature","title":"الحاجز المرجاني العظيم","period":"شعاب مرجانية","region":"أستراليا","lat":-18.287,"lng":147.699,"img":"https://images.unsplash.com/photo-1426604966848-d7adac902bff?auto=format&fit=crop&w=1200&q=80","desc":"منظومة شعاب مرجانية واسعة قبالة الساحل الأسترالي."},{"id":88,"cat":"nature","title":"جبل إيفرست","period":"قمة جبلية","region":"الهيمالايا","lat":27.988,"lng":86.925,"img":"https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=80","desc":"أعلى قمة فوق مستوى سطح البحر."},{"id":89,"cat":"nature","title":"الشفق القطبي","period":"ظاهرة طبيعية","region":"الدائرة القطبية","lat":67.0,"lng":20.0,"img":"https://images.unsplash.com/photo-1433086966358-54859d0ed716?auto=format&fit=crop&w=1200&q=80","desc":"أضواء تظهر في السماء العليا قرب المناطق القطبية."},{"id":90,"cat":"nature","title":"وادي رم","period":"صحراء صخرية","region":"الأردن","lat":29.576,"lng":35.419,"img":"https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&q=80","desc":"منطقة صحراوية ذات جبال وتكوينات صخرية مميزة."},{"id":91,"cat":"space","title":"الشمس","period":"نجم","region":"مركز النظام الشمسي","lat":0,"lng":0,"img":"https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80","desc":"النجم الذي يمد الأرض بالضوء والطاقة."},{"id":92,"cat":"space","title":"عطارد","period":"كوكب","region":"النظام الشمسي","lat":5,"lng":15,"img":"https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?auto=format&fit=crop&w=1200&q=80","desc":"أقرب كواكب النظام الشمسي إلى الشمس."},{"id":93,"cat":"space","title":"الزهرة","period":"كوكب","region":"النظام الشمسي","lat":10,"lng":30,"img":"https://images.unsplash.com/photo-1462331940025-496dfbfc7564?auto=format&fit=crop&w=1200&q=80","desc":"كوكب صخري ذو غلاف جوي كثيف."},{"id":94,"cat":"space","title":"الأرض","period":"كوكب","region":"النظام الشمسي","lat":15,"lng":45,"img":"https://images.unsplash.com/photo-1541185933-ef5d8ed016c2?auto=format&fit=crop&w=1200&q=80","desc":"موطن الحياة المعروف والكوكب الثالث من الشمس."},{"id":95,"cat":"space","title":"القمر","period":"قمر طبيعي","region":"مدار الأرض","lat":20,"lng":60,"img":"https://images.unsplash.com/photo-1502134249126-9f3755a50d78?auto=format&fit=crop&w=1200&q=80","desc":"القمر الطبيعي للأرض وأقرب جرم سماوي كبير إليها."},{"id":96,"cat":"space","title":"المريخ","period":"كوكب","region":"النظام الشمسي","lat":25,"lng":75,"img":"https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80","desc":"كوكب صخري يُعرف بلونه المائل إلى الحمرة."},{"id":97,"cat":"space","title":"المشتري","period":"كوكب عملاق","region":"النظام الشمسي","lat":30,"lng":90,"img":"https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?auto=format&fit=crop&w=1200&q=80","desc":"أكبر كواكب النظام الشمسي."},{"id":98,"cat":"space","title":"زحل","period":"كوكب عملاق","region":"النظام الشمسي","lat":35,"lng":105,"img":"https://images.unsplash.com/photo-1462331940025-496dfbfc7564?auto=format&fit=crop&w=1200&q=80","desc":"كوكب غازي تحيط به منظومة حلقات بارزة."},{"id":99,"cat":"space","title":"مجرة درب التبانة","period":"مجرة","region":"الفضاء العميق","lat":40,"lng":120,"img":"https://images.unsplash.com/photo-1541185933-ef5d8ed016c2?auto=format&fit=crop&w=1200&q=80","desc":"المجرة التي تضم النظام الشمسي."},{"id":100,"cat":"space","title":"سديم الجبار","period":"سديم","region":"كوكبة الجبار","lat":45,"lng":135,"img":"https://images.unsplash.com/photo-1502134249126-9f3755a50d78?auto=format&fit=crop&w=1200&q=80","desc":"منطقة تشكل نجوم يمكن رصدها في اتجاه كوكبة الجبار."}];
+ATLAS_DATA.push(...(window.ALRADHY_V46_EXTRA||[]));
+const LABELS={history:'الحقب التاريخية',legends:'الرموز',cities:'المدن',nature:'الطبيعة',space:'الفضاء'};
+let filteredList=[...ATLAS_DATA],currentIndex=0,map,marker,tourActive=false;
+function fallback(img){img.onerror=null;img.src='data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450"><rect width="100%" height="100%" fill="#111827"/><text x="50%" y="50%" fill="#f59e0b" text-anchor="middle" font-size="36">ALRADHY ATLAS</text></svg>`);}
+function initMap(){map=L.map('map',{attributionControl:true}).setView([24.7136,46.6753],4);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenStreetMap contributors'}).addTo(map);marker=L.marker([24.7136,46.6753]).addTo(map)}
+function renderTimeline(){
+ const bar=document.getElementById('timeline'),key=filteredList.map(x=>x.id).join(',');
+ if(bar.dataset.catalogKey!==key){
+  const frag=document.createDocumentFragment();
+  filteredList.forEach((x,i)=>{
+   const b=document.createElement('button');b.className='card';
+   b.innerHTML='<small>#'+x.id+' · '+x.period+'</small><br><strong>'+x.title+'</strong><br><small>📍 '+x.region+'</small>';
+   b.onclick=()=>selectNode(i);frag.appendChild(b);
+  });
+  bar.replaceChildren(frag);bar.dataset.catalogKey=key;
+ }
+ bar.querySelectorAll('.card').forEach((b,i)=>b.classList.toggle('active',i===currentIndex));
+}
+function renderGallery(cat){const box=document.getElementById('gallery');box.innerHTML='';const arr=filteredList.filter(x=>x.cat===cat).slice(0,10);arr.forEach(x=>{const b=document.createElement('button');b.className='g'+(filteredList[currentIndex]?.id===x.id?' active':'');const im=document.createElement('img');im.src=x.img;im.alt=x.title;im.loading='lazy';im.onerror=()=>fallback(im);b.appendChild(im);b.onclick=()=>{const i=filteredList.findIndex(v=>v.id===x.id);if(i>=0)selectNode(i)};box.appendChild(b)})}
+function renderEmpty(){const status=document.getElementById('galleryStatus');if(status)status.textContent='لا توجد نتائج';['hero','fullImg'].forEach(id=>document.getElementById(id).removeAttribute('src'));document.getElementById('title').textContent='لا توجد نتائج';document.getElementById('region').textContent='جرّب كلمة أخرى';document.getElementById('desc').textContent='';document.getElementById('period').textContent='';document.getElementById('index').textContent='#0 / 0';document.getElementById('gallery').innerHTML=''}
+function selectNode(i){if(!filteredList.length)return renderEmpty();currentIndex=(i+filteredList.length)%filteredList.length;const x=filteredList[currentIndex];const hero=document.getElementById('hero');hero.src=x.img;hero.onerror=()=>fallback(hero);document.getElementById('period').textContent=LABELS[x.cat]+' · '+x.period;document.getElementById('index').textContent=`#${currentIndex+1} / ${filteredList.length}`;document.getElementById('title').textContent=x.title;document.getElementById('region').textContent='📍 '+x.region;document.getElementById('desc').textContent=x.desc;const fi=document.getElementById('fullImg');fi.src=x.img;fi.onerror=()=>fallback(fi);document.getElementById('fullCap').textContent=x.title+' — '+x.region;renderGallery(x.cat);map.flyTo([x.lat,x.lng],Math.max(map.getZoom(),5),{duration:1});marker.setLatLng([x.lat,x.lng]).bindPopup(`<b>${x.title}</b><br>${x.region}`).openPopup();renderTimeline();document.querySelector('.card.active')?.scrollIntoView({behavior:'smooth',inline:'center',block:'nearest'})}
+function filterCategory(cat,button){document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));button?.classList.add('active');filteredList=cat==='all'?[...ATLAS_DATA]:ATLAS_DATA.filter(x=>x.cat===cat);currentIndex=0;document.getElementById('count').textContent=`(${filteredList.length})`;renderTimeline();filteredList.length?selectNode(0):renderEmpty()}
+function onSearch(q){const t=q.trim().toLocaleLowerCase('ar');filteredList=ATLAS_DATA.filter(x=>[x.title,x.period,x.region,x.desc,LABELS[x.cat]].some(v=>v.toLocaleLowerCase('ar').includes(t)));currentIndex=0;document.getElementById('count').textContent=`(${filteredList.length})`;renderTimeline();filteredList.length?selectNode(0):renderEmpty()}
+function nextNode(){selectNode(currentIndex+1)}function prevNode(){selectNode(currentIndex-1)}function openOverlay(){document.getElementById('overlay').classList.add('visible')}function closeOverlay(){document.getElementById('overlay').classList.remove('visible');setTimeout(()=>map.invalidateSize(),100)}
+function speakCurrent(fromTour){if(!filteredList.length)return;const x=filteredList[currentIndex],text=`${x.title}. الموقع: ${x.region}. ${x.desc}`;if(window.AndroidBridge?.speakArabic)AndroidBridge.speakArabic(text,!!fromTour);else if('speechSynthesis'in window){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang='ar-SA';u.onend=()=>{if(tourActive)setTimeout(()=>{nextNode();speakCurrent(true)},700)};speechSynthesis.speak(u)}}
+function toggleTour(){tourActive=!tourActive;const b=document.getElementById('tourBtn');b.classList.toggle('active',tourActive);b.textContent=tourActive?'⏸ إيقاف':'▶ جولة';if(tourActive)speakCurrent(true);else{window.AndroidBridge?.stopSpeech?.();window.speechSynthesis?.cancel()}}
+function nativeTtsDone(){if(tourActive)setTimeout(()=>{nextNode();speakCurrent(true)},700)}function handleNativeBack(){const o=document.getElementById('overlay');if(o.classList.contains('visible')){closeOverlay();return true}if(tourActive){toggleTour();return true}return false}
+
+
+/* V44 subject-specific images, no category-level image repeats */
+const WIKI_PAGE_TITLES=["Sumer","Giza pyramid complex","Indus Valley Civilisation","Akkadian Empire","Code of Hammurabi","New Kingdom of Egypt","Phoenicia","Kingdom of Saba","Neo-Assyrian Empire","Ancient Olympic Games","Founding of Rome","Achaemenid Empire","Classical Athens","Silk Road","Nabataean Kingdom","Roman Empire","Kingdom of Aksum","Incense trade route","Fall of the Western Roman Empire","Hijra (Islam)","Battle of the Yarmuk","Battle of al-Qadisiyyah","Umayyad Caliphate","Kairouan","Muslim conquest of Hispania","Round city of Baghdad","House of Wisdom","Caliphate of Córdoba","Al-Azhar University","University of al-Qarawiyyin","Fatimid Caliphate","Crusades","Battle of Hattin","Timbuktu","Ibn Battuta","Siege of Baghdad (1258)","Ottoman Empire","Fall of Granada","Christopher Columbus","Magellan expedition","Safavid Iran","Mughal Empire","Industrial Revolution","Rosetta Stone","Suez Canal","Battle of Riyadh (1902)","Unification of Saudi Arabia","United Nations","Apollo 11","World Wide Web","Al-Khwarizmi","Ibn al-Haytham","Avicenna","Muhammad ibn Zakariya al-Razi","Muhammad al-Idrisi","The Rihla","Ibn Khaldun","Jabir ibn Hayyan","Al-Farabi","Al-Zahrawi","Abbas ibn Firnas","Al-Biruni","Khalid ibn al-Walid","Tariq ibn Ziyad","Saladin","Abdulaziz of Saudi Arabia","Ahmed Zewail","Sameera Moussa","Mariam al-Asturlabi","Hassan Fathy","Mecca","Medina","Riyadh","Cairo","Baghdad","Damascus","Jerusalem","Istanbul","Córdoba, Spain","Samarkand","Rub' al Khali","Sarawat Mountains","Al Disah Valley","Farasan Islands","Victoria Falls","Amazon rainforest","Great Barrier Reef","Mount Everest","Aurora","Wadi Rum","Sun","Mercury (planet)","Venus","Earth","Moon","Mars","Jupiter","Saturn","Milky Way","Orion Nebula"];
+const STATION_IMG={};
+const STATION_ATTEMPT={};
+const STATION_ART={};
+try{Object.assign(STATION_IMG,JSON.parse(localStorage.getItem('atlas_v44_images')||'{}'));}catch(e){}
+function escapeSVG(t){return String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function uniqueStationArt(x){
+ if(STATION_ART[x.id])return STATION_ART[x.id];
+ const color=({history:35,legends:220,cities:182,nature:115,space:245}[x.cat]+x.id*11)%360;
+ let design='';
+ if(x.cat==='history')design='<path d="M65 420 L265 220 465 420Z M390 420 L575 110 760 420Z M650 420 L845 235 1000 420Z" fill="#fff" opacity=".18"/>';
+ else if(x.cat==='legends')design='<circle cx="510" cy="195" r="85" fill="#fff" opacity=".19"/><path d="M350 420 Q354 290 457 280 L561 280 Q671 290 685 420Z" fill="#fff" opacity=".17"/>';
+ else if(x.cat==='nature')design='<path d="M0 425 L165 225 340 375 545 105 715 375 870 210 1000 365 V550 H0Z" fill="#fff" opacity=".23"/>';
+ else if(x.cat==='space')design='<circle cx="510" cy="204" r="125" fill="#fbbf24" opacity=".38"/><ellipse cx="510" cy="204" rx="206" ry="52" transform="rotate(-25 510 204)" stroke="#fff" stroke-width="13" fill="none" opacity=".32"/>';
+ else for(let k=0;k<12;k++){let h=(90+(x.id*17+k*29)%180);design+='<rect x="'+(k*88)+'" y="'+(420-h)+'" width="72" height="'+h+'" fill="#fff" opacity=".18"/>';}
+ let stars='';for(let k=0;k<32;k++)stars+='<circle cx="'+((k*121+x.id*31)%980)+'" cy="'+((k*79+x.id*43)%415)+'" r="'+(1+k%3)+'" fill="#fff" opacity=".25"/>';
+ const svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 550"><defs><linearGradient id="g"><stop stop-color="hsl('+color+',65%,23%)"/><stop offset="1" stop-color="#040813"/></linearGradient></defs><rect width="1000" height="550" fill="url(#g)"/>'+stars+design
+ +'<rect y="430" width="1000" height="120" fill="#050917" opacity=".9"/>'
+ +'<text x="928" y="486" text-anchor="end" direction="rtl" fill="#fff" font-family="Tahoma,sans-serif" font-weight="bold" font-size="43">'+escapeSVG(x.title.slice(0,30))+'</text>'
+ +'<text x="928" y="528" text-anchor="end" direction="rtl" fill="#67e8f9" font-family="Tahoma,sans-serif" font-size="24">'+escapeSVG(x.region)+'</text>'
+ +'<text x="65" y="515" fill="#fbbf24" font-size="25" font-family="sans-serif">#'+String(x.id).padStart(3,'0')+'</text></svg>';
+ return STATION_ART[x.id]='data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg);
+}
+function visualOf(x){
+ const u=STATION_IMG[x.id];return typeof u==='string'&&u.startsWith('https://upload.wikimedia.org/')?u:uniqueStationArt(x);
+}
+function renderStationPhoto(x){
+ const url=visualOf(x);
+ ['hero','fullImg'].forEach(id=>{
+  const im=document.getElementById(id);
+  im.onerror=()=>{im.onerror=null;im.src=uniqueStationArt(x);};
+  im.src=url;im.alt=x.title;
+ });
+ document.getElementById('fullCap').textContent=x.title+' — '+x.region;
+ const gallery=document.getElementById('gallery');gallery.innerHTML='';
+ const b=document.createElement('button');b.className='g active';
+ const img=document.createElement('img');img.src=url;img.alt=x.title;img.onerror=()=>{img.onerror=null;img.src=uniqueStationArt(x);};
+ b.appendChild(img);b.onclick=()=>openOverlay();gallery.appendChild(b);
+ const credit=document.getElementById('stationPhotoCredit');
+ if(credit){
+  credit.textContent='';
+  if(STATION_IMG[x.id]){
+   const btn=document.createElement('button');btn.textContent='مصدر الصورة: ويكيبيديا / ويكيميديا';
+   btn.style.cssText='border:0;background:transparent;padding:0;color:#67e8f9;font-size:12px;text-decoration:underline';
+   btn.onclick=()=>window.AndroidBridge?.openWikiPage?.((x.wiki||WIKI_PAGE_TITLES[x.id-1]||x.title));
+   credit.appendChild(btn);
+  } else credit.textContent='رسم خاص بالمحطة؛ تظهر صورتها الأصلية عند توفر الإنترنت';
+ }
+}
+window.atlasPhotoResolved=function(id,url){
+ STATION_ATTEMPT[id]=Date.now();
+ if(typeof url!=='string'||!url.startsWith('https://upload.wikimedia.org/'))return;
+ if(Object.keys(STATION_IMG).some(k=>+k!==+id&&STATION_IMG[k]===url))return;
+ STATION_IMG[id]=url;
+ try{localStorage.setItem('atlas_v44_images',JSON.stringify(STATION_IMG));}catch(e){}
+ if(filteredList[currentIndex]?.id===+id)renderStationPhoto(filteredList[currentIndex]);
+};
+function requestStationPhoto(x){
+ if(STATION_IMG[x.id]||!window.AndroidBridge?.resolveWikiPhoto)return;
+ if(Date.now()-(STATION_ATTEMPT[x.id]||0)<120000)return;
+ STATION_ATTEMPT[x.id]=Date.now();
+ window.AndroidBridge.resolveWikiPhoto(x.id,(x.wiki||WIKI_PAGE_TITLES[x.id-1]||x.title));
+}
+function renderGallery(){const x=filteredList[currentIndex];if(x)renderStationPhoto(x);}
+function selectNode(i){
+ if(!filteredList.length)return renderEmpty();
+ currentIndex=(i+filteredList.length)%filteredList.length;
+ const x=filteredList[currentIndex];
+ document.getElementById('period').textContent=LABELS[x.cat]+' · '+x.period;
+ document.getElementById('index').textContent='#'+(currentIndex+1)+' / '+filteredList.length;
+ document.getElementById('title').textContent=x.title;
+ document.getElementById('region').textContent='📍 '+x.region;
+ document.getElementById('desc').textContent=x.desc;
+ renderStationPhoto(x);
+ if(x.cat==='space') {marker.setOpacity(0);} else {marker.setOpacity(1);map.flyTo([x.lat,x.lng],Math.max(map.getZoom(),5),{duration:1});marker.setLatLng([x.lat,x.lng]).bindPopup('<b>'+x.title+'</b><br>'+x.region).openPopup();}
+ renderTimeline();
+ document.querySelector('.card.active')?.scrollIntoView({behavior:'smooth',inline:'center',block:'nearest'});
+ requestStationPhoto(x);
+}
+
+
+/* V45: 10 REAL relevant images per station when available, no recycled stock art */
+const GALLERY_LIMIT=10;
+const STATION_GALLERIES=Object.create(null);
+const GALLERY_LOADING=Object.create(null);
+const GALLERY_ERRORS=Object.create(null);
+let photoIndex=0;
+try{Object.assign(STATION_GALLERIES,JSON.parse(localStorage.getItem('atlas_station_galleries_v45')||'{}'));}catch(e){}
+function galleryFor(x){
+ const offline=window.ALRADHY_SEED_PHOTOS?.[x.id]||[];
+ const online=STATION_GALLERIES[x.id]||[];
+ const found=new Set();
+ return [...offline,...online].filter(item=>{
+  if(!item||typeof item.url!=='string')return false;
+  const key=item.source||item.url;
+  if(found.has(key))return false;
+  found.add(key);return true;
+ }).slice(0,GALLERY_LIMIT);
+}
+function showGalleryPhoto(x,idx){
+ const photos=galleryFor(x);
+ if(!photos.length)return;
+ photoIndex=(idx+photos.length)%photos.length;
+ const p=photos[photoIndex];
+ for(const id of ['hero','fullImg']){
+  const el=document.getElementById(id);
+  el.onerror=()=>{
+   el.onerror=null;
+   el.removeAttribute('src');
+   const status=document.getElementById('galleryStatus');
+   if(status)status.textContent='تعذر فتح الصورة '+(photoIndex+1)+' — جرّب صورة أخرى';
+  };
+  el.src=p.url;el.alt=x.title+' — '+(photoIndex+1);
+ }
+ document.getElementById('fullCap').textContent=x.title+' — '+(photoIndex+1)+' / '+photos.length;
+ document.getElementById('photoCounter').textContent=(photoIndex+1)+' / '+photos.length;
+ document.querySelectorAll('#gallery .g').forEach((e,i)=>e.classList.toggle('active',i===photoIndex));
+ const source=document.getElementById('stationPhotoCredit');
+ source.textContent='';
+ const btn=document.createElement('button');
+ btn.textContent=(p.credit||'Wikimedia Commons')+(p.license?' — '+p.license:'')+' ↗';
+ btn.style.cssText='background:transparent;border:0;color:#67e8f9;font-size:12px;text-decoration:underline;padding:3px;white-space:normal';
+ btn.onclick=()=>{if(p.source)window.AndroidBridge?.openGallerySource?.(p.source);};
+ source.appendChild(btn);
+}
+function nextPhoto(){const x=filteredList[currentIndex];if(x)showGalleryPhoto(x,photoIndex+1)}
+function prevPhoto(){const x=filteredList[currentIndex];if(x)showGalleryPhoto(x,photoIndex-1)}
+function renderStationGallery(x){
+ const box=document.getElementById('gallery');
+ const status=document.getElementById('galleryStatus');
+ const counter=document.getElementById('photoCounter');
+ const credit=document.getElementById('stationPhotoCredit');
+ box.innerHTML='';counter.textContent='0 / '+GALLERY_LIMIT;credit.textContent='';
+ const photos=galleryFor(x);
+ if(!photos.length){
+  for(const id of ['hero','fullImg']){const im=document.getElementById(id);im.onerror=null;im.src=uniqueStationArt(x);im.alt='رسم توضيحي: '+x.title;}
+  status.textContent=GALLERY_LOADING[x.id]?'جارٍ جلب صور '+x.title+'…':(GALLERY_ERRORS[x.id]||'لم تُحمّل الصور بعد — الرسم الحالي توضيحي');
+  const retry=document.createElement('button');retry.textContent='↻ إعادة تحميل الصور';
+  retry.onclick=()=>{delete GALLERY_LOADING[x.id];delete GALLERY_ERRORS[x.id];fetchStationGallery(x,true);};
+  box.appendChild(retry);return;
+ }
+ status.textContent=photos.length+' صور حقيقية تخص '+x.title+(photos.length<10?' — جاري البحث عن المزيد إن توفرت':'');
+ photos.forEach((p,i)=>{
+  const b=document.createElement('button');
+  b.className='g'+(i===0?' active':'');b.title='الصورة '+(i+1)+' : '+x.title;
+  const img=document.createElement('img');img.alt=x.title+' '+(i+1);img.loading='lazy';img.src=p.url;
+  img.onerror=()=>{img.style.opacity='.15';b.title='فشل تحميل هذه الصورة';};
+  b.appendChild(img);b.onclick=()=>showGalleryPhoto(x,i);box.appendChild(b);
+ });
+ showGalleryPhoto(x,0);
+}
+window.atlasGalleryV45Resolved=function(id,items,error){
+ delete GALLERY_LOADING[id];
+ if(Array.isArray(items)&&items.length){
+  STATION_GALLERIES[id]=items.slice(0,20);
+  try{localStorage.setItem('atlas_station_galleries_v45',JSON.stringify(STATION_GALLERIES));}catch(e){}
+  delete GALLERY_ERRORS[id];
+ } else GALLERY_ERRORS[id]=error||'المصدر لم يرجع صورًا متاحة لهذا الموضوع';
+ if(filteredList[currentIndex]?.id===+id)renderStationGallery(filteredList[currentIndex]);
+};
+function fetchStationGallery(x,force){
+ if(!x||!window.AndroidBridge?.resolveWikiGallery)return;
+ if(GALLERY_LOADING[x.id])return;
+ if(!force && STATION_GALLERIES[x.id]?.length>=10)return;
+ GALLERY_LOADING[x.id]=true;
+ const status=document.getElementById('galleryStatus');
+ if(status)status.textContent='جارٍ تحميل صور '+x.title+'…';
+ window.AndroidBridge.resolveWikiGallery(x.id,(x.wiki||WIKI_PAGE_TITLES[x.id-1]||x.title));
+}
+function renderGallery(){const x=filteredList[currentIndex];if(x)renderStationGallery(x);}
+function selectNode(i){
+ if(!filteredList.length)return renderEmpty();
+ currentIndex=(i+filteredList.length)%filteredList.length;photoIndex=0;
+ const x=filteredList[currentIndex];
+ document.getElementById('period').textContent=LABELS[x.cat]+' · '+x.period;
+ document.getElementById('index').textContent='#'+(currentIndex+1)+' / '+filteredList.length;
+ document.getElementById('title').textContent=x.title;
+ document.getElementById('region').textContent='📍 '+x.region;
+ document.getElementById('desc').textContent=x.desc;
+ renderStationGallery(x);
+ if(x.cat==='space') {marker.setOpacity(0);} else {marker.setOpacity(1);map.flyTo([x.lat,x.lng],Math.max(map.getZoom(),5),{duration:1});marker.setLatLng([x.lat,x.lng]).bindPopup('<b>'+x.title+'</b><br>'+x.region).openPopup();}
+ renderTimeline();
+ document.querySelector('.card.active')?.scrollIntoView({behavior:'smooth',inline:'center',block:'nearest'});
+ fetchStationGallery(x,false);
+}
+
+
+/* ===================== V47 · Satellite atlas, physical-remote first ===================== */
+const V47_KEY='atlas_v47_state';
+const CAT_COLORS={history:'#f59e0b',legends:'#a78bfa',cities:'#22d3ee',nature:'#4ade80',space:'#f472b6'};
+const CAT_ICONS={history:'🏛️',legends:'⭐',cities:'🏙️',nature:'🌿',space:'🪐'};
+const CATS=[['all','الكل'],['history','الحقب'],['legends','الرموز'],['cities','المدن'],['nature','الطبيعة'],['space','الفضاء'],['fav','★ المفضلة']];
+let v47={cat:'all',lastId:null,labels:true,favs:[]};
+try{Object.assign(v47,JSON.parse(localStorage.getItem(V47_KEY)||'{}'));}catch(e){}
+function saveState(){try{localStorage.setItem(V47_KEY,JSON.stringify(v47));}catch(e){}}
+let satLayer,labelLayer,dotLayer,activeDot,searchTimer,selectTimer,lastQuery='';
+const byId=new Map(ATLAS_DATA.map(x=>[x.id,x]));
+function toast(t){const el=document.getElementById('toast');el.textContent=t;el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),1800);}
+
+/* ---------- Satellite map (Esri World Imagery) — no street map, no tour ---------- */
+function initMap(){
+ map=L.map('map',{attributionControl:true,keyboard:false,zoomControl:true,preferCanvas:true,worldCopyJump:true,minZoom:2,maxZoom:18}).setView([24.7136,46.6753],4);
+ satLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:18,maxNativeZoom:17,attribution:'صور القمر الصناعي © Esri، Maxar، Earthstar Geographics'}).addTo(map);
+ labelLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{maxZoom:18,maxNativeZoom:17,pane:'overlayPane',opacity:.95});
+ if(v47.labels)labelLayer.addTo(map);
+ document.getElementById('labelsBtn').classList.toggle('active',!!v47.labels);
+ map.zoomControl.setPosition('topleft');
+ dotLayer=L.layerGroup().addTo(map);
+ marker=L.marker([24.7136,46.6753],{keyboard:false});
+}
+function toggleLabels(){v47.labels=!v47.labels;if(v47.labels)labelLayer.addTo(map);else map.removeLayer(labelLayer);document.getElementById('labelsBtn').classList.toggle('active',v47.labels);saveState();toast(v47.labels?'أسماء الأماكن ظاهرة':'صورة القمر الصناعي فقط');}
+function resetView(){map.flyTo([22,30],2.6,{duration:1});}
+function drawDots(){
+ dotLayer.clearLayers();
+ filteredList.forEach((x,i)=>{if(x.cat==='space')return;
+  L.circleMarker([x.lat,x.lng],{radius:5,color:'#0b1220',weight:1,fillColor:CAT_COLORS[x.cat],fillOpacity:.9}).on('click',()=>selectNode(i)).addTo(dotLayer);});
+}
+function highlightDot(x){
+ if(activeDot){map.removeLayer(activeDot);activeDot=null;}
+ if(x.cat==='space')return;
+ activeDot=L.circleMarker([x.lat,x.lng],{radius:12,color:'#fff',weight:3,fillColor:CAT_COLORS[x.cat],fillOpacity:1}).addTo(map)
+  .bindTooltip(x.title,{permanent:true,direction:'top',offset:[0,-12],className:'atlas-tip'});
+}
+const ZOOM_BY_CAT={history:6,legends:6,cities:10,nature:8};
+
+/* ---------- Arabic-aware search ---------- */
+function norm(s){return String(s||'').toLocaleLowerCase('ar').replace(/[ً-ٰٟـ]/g,'').replace(/[أإآٱ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/ؤ/g,'و').replace(/ئ/g,'ي');}
+ATLAS_DATA.forEach(x=>x._s=norm([x.title,x.period,x.region,x.desc,LABELS[x.cat],x.wiki||''].join(' ')));
+function onSearch(q){clearTimeout(searchTimer);searchTimer=setTimeout(()=>applyFilter(q),250);}
+function clearSearch(){const s=document.getElementById('search');s.value='';applyFilter('');}
+function baseList(){if(v47.cat==='fav')return ATLAS_DATA.filter(x=>v47.favs.includes(x.id));return v47.cat==='all'?[...ATLAS_DATA]:ATLAS_DATA.filter(x=>x.cat===v47.cat);}
+function applyFilter(q,keepId){
+ lastQuery=q=(q||'').trim();
+ const words=norm(q).split(/\s+/).filter(Boolean);
+ filteredList=baseList().filter(x=>words.every(w=>x._s.includes(w)));
+ if(words.length){const rank=x=>{const t=norm(x.title),r=norm(x.region);return words.every(w=>t.includes(w))?0:words.every(w=>r.includes(w))?1:2;};filteredList=filteredList.map((x,i)=>[x,rank(x),i]).sort((a,b)=>a[1]-b[1]||a[2]-b[2]).map(a=>a[0]);}
+ document.getElementById('count').textContent='('+filteredList.length+')';
+ document.getElementById('searchClear').style.visibility=q?'visible':'hidden';
+ drawDots();renderTimeline();
+ if(!filteredList.length){renderEmpty();if(activeDot){map.removeLayer(activeDot);activeDot=null;}return;}
+ const idx=keepId?Math.max(0,filteredList.findIndex(x=>x.id===keepId)):0;
+ selectNode(idx);
+}
+function renderTabs(){
+ const box=document.getElementById('tabs');box.innerHTML='';
+ CATS.forEach(([k,label])=>{const n=k==='all'?ATLAS_DATA.length:k==='fav'?v47.favs.length:ATLAS_DATA.filter(x=>x.cat===k).length;
+  const b=document.createElement('button');b.dataset.cat=k;b.className=v47.cat===k?'active':'';
+  b.innerHTML=(CAT_ICONS[k]?CAT_ICONS[k]+' ':'')+label+'<span class="n">'+n+'</span>';
+  b.onclick=()=>filterCategory(k);box.appendChild(b);});
+}
+function filterCategory(cat){if(cat==='fav'&&!v47.favs.length){toast('لا توجد محطات مفضلة بعد — اضغط ☆ لإضافة محطة');return;}v47.cat=cat;saveState();renderTabs();applyFilter(document.getElementById('search').value);}
+
+/* ---------- Timeline ---------- */
+function renderTimeline(){
+ const bar=document.getElementById('timeline'),key=filteredList.map(x=>x.id).join(',')+'|'+v47.favs.join(',');
+ if(bar.dataset.catalogKey!==key){
+  const frag=document.createDocumentFragment();
+  filteredList.forEach((x,i)=>{const b=document.createElement('button');b.className='card';b.dataset.i=i;
+   b.innerHTML='<small>'+(CAT_ICONS[x.cat]||'')+' #'+x.id+' · '+x.period+(v47.favs.includes(x.id)?' <span class="star">★</span>':'')+'</small><br><strong>'+x.title+'</strong><br><small>📍 '+x.region+'</small>';
+   b.onclick=()=>selectNode(i);frag.appendChild(b);});
+  bar.replaceChildren(frag);bar.dataset.catalogKey=key;
+ }
+ bar.querySelectorAll('.card').forEach((b,i)=>b.classList.toggle('active',i===currentIndex));
+}
+
+/* ---------- Enriched information ---------- */
+function yearsAgo(period){
+ const m=String(period).match(/(\d[\d,]*)\s*(ق\.?\s*م|م)?/);if(!m)return '';
+ let y=+m[1].replace(/,/g,'');if(/ق/.test(m[2]||''))y=-y;
+ const ago=new Date().getFullYear()-y;if(ago<=0||ago>5e6)return '';
+ return ago>=1000?'قبل نحو '+Math.round(ago/100)/10+' ألف سنة':'قبل نحو '+ago+' سنة';
+}
+function fmtCoord(v,pos,neg){return Math.abs(v).toFixed(2)+'° '+(v>=0?pos:neg);}
+function km(a,b){const R=6371,r=Math.PI/180,dl=(b.lat-a.lat)*r,dn=(b.lng-a.lng)*r,h=Math.sin(dl/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(h));}
+const RIYADH={lat:24.7136,lng:46.6753};
+function renderFacts(x){
+ const rows=[['التصنيف',(CAT_ICONS[x.cat]||'')+' '+LABELS[x.cat]],['الزمن',x.period+(yearsAgo(x.period)?' — '+yearsAgo(x.period):'')],['الموقع',x.region]];
+ if(x.cat!=='space'){rows.push(['الإحداثيات',fmtCoord(x.lat,'ش','ج')+' ، '+fmtCoord(x.lng,'شر','غ')]);rows.push(['المسافة من الرياض',Math.round(km(RIYADH,x)).toLocaleString('ar-SA')+' كم']);}
+ rows.push(['رقم المحطة','#'+x.id+' من '+ATLAS_DATA.length]);
+ document.getElementById('facts').innerHTML=rows.map(r=>'<dt>'+r[0]+'</dt><dd>'+escapeSVG(r[1])+'</dd>').join('');
+ const near=document.getElementById('nearby'),sec=document.getElementById('nearSec');near.innerHTML='';
+ if(x.cat==='space'){sec.style.display='none';return;}sec.style.display='';
+ ATLAS_DATA.filter(y=>y.id!==x.id&&y.cat!=='space').map(y=>[y,km(x,y)]).sort((a,b)=>a[1]-b[1]).slice(0,4).forEach(([y,d])=>{
+  const b=document.createElement('button');b.innerHTML='<span>'+(CAT_ICONS[y.cat]||'')+' '+escapeSVG(y.title)+'</span><small>'+Math.round(d).toLocaleString('ar-SA')+' كم</small>';
+  b.onclick=()=>jumpTo(y.id);near.appendChild(b);});
+}
+function jumpTo(id){let i=filteredList.findIndex(x=>x.id===id);if(i<0){v47.cat='all';renderTabs();document.getElementById('search').value='';applyFilter('',id);return;}selectNode(i);}
+const WIKI_CACHE_KEY='atlas_v47_wiki';let WIKI={};try{WIKI=JSON.parse(localStorage.getItem(WIKI_CACHE_KEY)||'{}');}catch(e){}
+function enTitle(x){return x.wiki||WIKI_PAGE_TITLES[x.id-1]||'';}
+async function getJSON(u){const r=await fetch(u);if(!r.ok)throw Error(r.status);return r.json();}
+function firstPage(j){const p=j&&j.query&&j.query.pages;return p?Object.values(p)[0]:null;}
+async function loadWiki(x){
+ const box=document.getElementById('wikiText');
+ if(WIKI[x.id]){box.className='';box.textContent=WIKI[x.id].t;return;}
+ box.className='loading';box.textContent='جارٍ جلب نبذة موسّعة من ويكيبيديا…';
+ const id=x.id;
+ try{
+  let ar='',en='',arTitle='';const t=enTitle(x);
+  if(t){const p=firstPage(await getJSON('https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&redirects=1&prop=langlinks|extracts&lllang=ar&exintro=1&explaintext=1&exsentences=5&titles='+encodeURIComponent(t)));
+   if(p){en=p.extract||'';arTitle=p.langlinks&&p.langlinks[0]&&p.langlinks[0]['*']||'';}}
+  if(!arTitle){const s=await getJSON('https://ar.wikipedia.org/w/api.php?action=query&format=json&origin=*&list=search&srlimit=1&srsearch='+encodeURIComponent(x.title));arTitle=s.query&&s.query.search&&s.query.search[0]&&s.query.search[0].title||'';}
+  if(arTitle){const p=firstPage(await getJSON('https://ar.wikipedia.org/w/api.php?action=query&format=json&origin=*&redirects=1&prop=extracts&exintro=1&explaintext=1&titles='+encodeURIComponent(arTitle)));ar=p&&p.extract||'';}
+  let text=ar.trim();if(text.length>900)text=text.slice(0,900).replace(/\s\S*$/,'')+'…';
+  if(!text&&en)text='(بالإنجليزية) '+en.trim();
+  if(!text)throw Error('empty');
+  WIKI[id]={t:text,ar:arTitle};try{localStorage.setItem(WIKI_CACHE_KEY,JSON.stringify(WIKI));}catch(e){}
+  if(filteredList[currentIndex]&&filteredList[currentIndex].id===id){box.className='';box.textContent=text;}
+ }catch(e){if(filteredList[currentIndex]&&filteredList[currentIndex].id===id){box.className='loading';box.textContent=navigator.onLine===false?'النبذة الموسّعة تحتاج اتصالًا بالإنترنت — الوصف الأساسي أعلاه متاح دائمًا.':'تعذر جلب نبذة إضافية لهذه المحطة الآن.';}}
+}
+function openArticle(){const x=filteredList[currentIndex];if(!x)return;const t=enTitle(x)||x.title;if(window.AndroidBridge&&AndroidBridge.openWikiPage)AndroidBridge.openWikiPage(t);}
+
+/* ---------- Favourites ---------- */
+function updateFavBtn(x){const on=v47.favs.includes(x.id),b=document.getElementById('favBtn');b.classList.toggle('on',on);b.textContent=on?'★ مفضلة':'☆ مفضلة';}
+function toggleFav(){const x=filteredList[currentIndex];if(!x)return;const i=v47.favs.indexOf(x.id);if(i>=0)v47.favs.splice(i,1);else v47.favs.push(x.id);saveState();updateFavBtn(x);renderTabs();renderTimeline();toast(i>=0?'أُزيلت من المفضلة':'أُضيفت إلى المفضلة ★');}
+
+/* ---------- Station selection ---------- */
+function selectNode(i){
+ if(!filteredList.length)return renderEmpty();
+ currentIndex=(i+filteredList.length)%filteredList.length;photoIndex=0;
+ const x=filteredList[currentIndex];v47.lastId=x.id;saveState();
+ document.getElementById('period').textContent=LABELS[x.cat]+' · '+x.period;
+ document.getElementById('index').textContent='#'+(currentIndex+1)+' / '+filteredList.length;
+ document.getElementById('title').textContent=x.title;
+ document.getElementById('region').textContent='📍 '+x.region;
+ document.getElementById('desc').textContent=x.desc;
+ renderStationGallery(x);renderFacts(x);updateFavBtn(x);
+ const sc=document.getElementById('spaceCard');
+ if(x.cat==='space'){sc.classList.add('visible');document.getElementById('spaceTitle').textContent=CAT_ICONS.space+' '+x.title;document.getElementById('spaceText').textContent=x.desc;highlightDot(x);}
+ else{sc.classList.remove('visible');map.flyTo([x.lat,x.lng],Math.max(map.getZoom(),ZOOM_BY_CAT[x.cat]||6),{duration:1.1});highlightDot(x);}
+ renderTimeline();
+ const card=document.querySelector('#timeline .card.active');if(card&&document.activeElement!==card)card.scrollIntoView({behavior:'smooth',inline:'center',block:'nearest'});
+ document.getElementById('panel').scrollTop=0;
+ fetchStationGallery(x,false);
+ clearTimeout(loadWiki.t);loadWiki.t=setTimeout(()=>loadWiki(x),400);
+}
+function speakCurrent(){
+ if(!filteredList.length)return;const x=filteredList[currentIndex];
+ const extra=WIKI[x.id]&&!/^\(بالإنجليزية\)/.test(WIKI[x.id].t)?' '+WIKI[x.id].t:'';
+ const text=x.title+'. الموقع: '+x.region+'. '+x.desc+'.'+extra;
+ if(window.AndroidBridge&&AndroidBridge.speakArabic)AndroidBridge.speakArabic(text,false);
+ else if('speechSynthesis'in window){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang='ar-SA';speechSynthesis.speak(u);}
+ toast('🎙 قراءة — اضغط ⏯ للإيقاف');speakCurrent.on=true;
+}
+function stopSpeech(){speakCurrent.on=false;if(window.AndroidBridge&&AndroidBridge.stopSpeech)AndroidBridge.stopSpeech();if(window.speechSynthesis)speechSynthesis.cancel();}
+function nativeTtsDone(){speakCurrent.on=false;}
+function toggleTour(){}
+
+/* ---------- Physical remote (D-pad / OK / Back / media keys) ---------- */
+const FOCUSABLE='#top button,#search,#panel button,#hero,#map,#timeline .card,.leaflet-control-zoom a';
+function visible(el){if(!el.isConnected)return false;const s=getComputedStyle(el);if(s.visibility==='hidden'||s.display==='none')return false;const r=el.getBoundingClientRect();return r.width>0&&r.height>0&&!el.closest('[style*="display: none"]');}
+function scrollParentOf(el){return el.closest('#panel,#timeline,#tabs');}
+function moveFocus(dir){
+ const cur=document.activeElement&&document.activeElement!==document.body?document.activeElement:null;
+ if(!cur){focusDefault();return true;}
+ const c=cur.getBoundingClientRect();
+ const panel=document.getElementById('panel').getBoundingClientRect(),tl=document.getElementById('timeline').getBoundingClientRect();
+ let best=null,bestScore=1e9;
+ document.querySelectorAll(FOCUSABLE).forEach(el=>{
+  if(el===cur||!visible(el))return;
+  let r=el.getBoundingClientRect();
+  // ignore items scrolled far outside their own scroll area, unless they are the next in line inside the same container
+  const sp=scrollParentOf(el);
+  if(sp&&sp!==scrollParentOf(cur)){const pr=sp.getBoundingClientRect();if(r.bottom<pr.top||r.top>pr.bottom||r.right<pr.left||r.left>pr.right)return;}
+  let main,ortho;
+  if(dir==='down'){if(r.top<c.bottom-4)return;main=r.top-c.bottom;ortho=Math.max(0,r.left-c.right,c.left-r.right);}
+  else if(dir==='up'){if(r.bottom>c.top+4)return;main=c.top-r.bottom;ortho=Math.max(0,r.left-c.right,c.left-r.right);}
+  else if(dir==='left'){if(r.right>c.left+4)return;main=c.left-r.right;ortho=Math.max(0,r.top-c.bottom,c.top-r.bottom);}
+  else{if(r.left<c.right-4)return;main=r.left-c.right;ortho=Math.max(0,r.top-c.bottom,c.top-r.bottom);}
+  const score=Math.max(0,main)+ortho*4+(scrollParentOf(el)!==scrollParentOf(cur)&&scrollParentOf(cur)&&scrollParentOf(cur).id==='panel'?5000:0);
+  if(score<bestScore){bestScore=score;best=el;}
+ });
+ if(best){best.focus({preventScroll:true});best.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});return true;}
+ return false;
+}
+function focusDefault(){const a=document.querySelector('#timeline .card.active')||document.querySelector('#timeline .card')||document.querySelector('#tabs button');a&&a.focus();a&&a.scrollIntoView({block:'nearest',inline:'center'});}
+const PAN=180;let mapMode=false;
+function setMapMode(on){mapMode=on;const h=document.getElementById('mapHint');document.getElementById('map').classList.toggle('exploring',on);
+ h.textContent=on?'وضع استكشاف الخريطة: الأسهم للتحريك · OK للتقريب · رجوع للخروج':'اضغط OK لاستكشاف الخريطة بالأسهم';h.classList.toggle('on',on);if(on)toast('🛰️ وضع استكشاف الخريطة');}
+function onRemoteKey(e){
+ const k=e.key,el=document.activeElement,ov=document.getElementById('overlay').classList.contains('visible');
+ const dir={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right'}[k];
+ document.body.classList.add('kbd');
+ // media / colour keys work everywhere
+ if(k==='MediaPlayPause'||k==='MediaPlay'||k==='MediaPause'){e.preventDefault();speakCurrent.on?stopSpeech():speakCurrent();return;}
+ if(k==='MediaFastForward'||k==='MediaTrackNext'||k==='ChannelDown'||k==='PageDown'){e.preventDefault();nextNode();return;}
+ if(k==='MediaRewind'||k==='MediaTrackPrevious'||k==='ChannelUp'||k==='PageUp'){e.preventDefault();prevNode();return;}
+ if(/^[1-7]$/.test(k)&&el&&el.id!=='search'){e.preventDefault();filterCategory(CATS[+k-1][0]);return;}
+ if(ov){ // full-screen photo: left/right flip photos, OK/Back close
+  if(k==='ArrowLeft'){e.preventDefault();nextPhoto();return;}
+  if(k==='ArrowRight'){e.preventDefault();prevPhoto();return;}
+  if(k==='Enter'||k==='Escape'||k==='Backspace'){e.preventDefault();closeOverlay();return;}
+  e.preventDefault();return;
+ }
+ if(el&&el.id==='map'){
+  if(!mapMode&&k==='Enter'){e.preventDefault();setMapMode(true);return;}
+  if(mapMode){ // explore mode: arrows pan, OK zooms in, Back leaves
+   if(dir){e.preventDefault();const d={up:[0,-PAN],down:[0,PAN],left:[-PAN,0],right:[PAN,0]}[dir];map.panBy(d,{animate:true});return;}
+   if(k==='Enter'){e.preventDefault();map.zoomIn();return;}
+  }
+  if(k==='+'||k==='='){map.zoomIn();return;}if(k==='-'){map.zoomOut();return;}
+ }
+ if(el&&el.id==='search'){
+  if(k==='ArrowUp'||k==='ArrowDown'){e.preventDefault();moveFocus(dir);return;}
+  if(k==='Enter'){e.preventDefault();el.blur();focusDefault();return;}
+  return; // left/right move the text cursor
+ }
+ if(dir){e.preventDefault();if(!moveFocus(dir)&&el&&el.classList.contains('card')){dir==='left'?nextNode():dir==='right'?prevNode():0;}return;}
+ if(k==='Enter'&&el&&el.id==='hero'){e.preventDefault();openOverlay();return;}
+ if(k==='Escape'||k==='Backspace'){if(handleNativeBack())e.preventDefault();}
+}
+function handleNativeBack(){
+ const o=document.getElementById('overlay');if(o.classList.contains('visible')){closeOverlay();return true;}
+ if(speakCurrent.on){stopSpeech();return true;}
+ const el=document.activeElement;
+ if(el&&el.id==='search'){el.blur();focusDefault();return true;}
+ if(lastQuery){clearSearch();focusDefault();toast('تم مسح البحث');return true;}
+ if(mapMode){setMapMode(false);if(map.getZoom()>(ZOOM_BY_CAT[(filteredList[currentIndex]||{}).cat]||6)+2)map.zoomOut(2);return true;}
+ if(el&&(el.id==='map'||el.closest('#panel')||el.closest('#top'))){focusDefault();return true;}
+ return false;
+}
+function openOverlay(){document.getElementById('overlay').classList.add('visible');}
+function closeOverlay(){document.getElementById('overlay').classList.remove('visible');setTimeout(()=>{map.invalidateSize();document.getElementById('hero').focus();},100);}
+// selecting a station by just landing on its card (debounced so fast scrolling stays smooth)
+document.addEventListener('focusin',e=>{if(mapMode&&e.target.id!=='map')setMapMode(false);const c=e.target.closest&&e.target.closest('#timeline .card');if(c){clearTimeout(selectTimer);const i=+c.dataset.i;if(i!==currentIndex)selectTimer=setTimeout(()=>selectNode(i),450);}});
+document.addEventListener('keydown',onRemoteKey,true);
+document.addEventListener('mousedown',()=>document.body.classList.remove('kbd'));
+
+window.addEventListener('load',()=>{
+ initMap();renderTabs();
+ if(v47.cat==='fav'&&!v47.favs.length)v47.cat='all';
+ renderTabs();applyFilter('',v47.lastId);
+ setTimeout(focusDefault,300);setMapMode(false);
+ window.addEventListener('resize',()=>map.invalidateSize());
+});
+</script></body></html>
