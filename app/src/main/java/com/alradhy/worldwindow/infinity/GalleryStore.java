@@ -21,10 +21,13 @@ final class GalleryStore {
     static final int TARGET=20;
     private static final int MAX_IMAGE_BYTES=3*1024*1024;
     private static final Object INDEX_LOCK=new Object();
+    static final String PACK_CHANGED="com.alradhy.worldwindow.infinity.PACK_CHANGED";
+    private final Context app;
     private final File directory;
     private final AtomicFile index;
 
     GalleryStore(Context context,Scene scene){
+        app=context.getApplicationContext();
         directory=new File(new File(context.getFilesDir(),"pictures"),scene.id);
         index=new AtomicFile(new File(directory,"index.json"));
     }
@@ -89,6 +92,11 @@ final class GalleryStore {
         return null;
     }
 
+    private void notifyPackChanged(){
+        app.sendBroadcast(new android.content.Intent(PACK_CHANGED).setPackage(app.getPackageName())
+            .putExtra("scene_id",directory.getName()));
+    }
+
     List<Photo> saved(){
         List<Photo> photos=new ArrayList<>();
         try{
@@ -115,6 +123,7 @@ final class GalleryStore {
             boolean ok=true;
             if(files!=null)for(File f:files)if(f.isFile() && !f.delete())ok=false;
             if(directory.isDirectory() && !directory.delete())ok=false;
+            notifyPackChanged();
             return ok;
         }
     }
@@ -239,6 +248,7 @@ final class GalleryStore {
                 .put("url",p.url));
             rows.put(row);
             synchronized(INDEX_LOCK){write(index,rows.toString().getBytes(StandardCharsets.UTF_8));}
+            notifyPackChanged();
             return new Photo(row);
         }catch(Exception error){
             picture.delete();

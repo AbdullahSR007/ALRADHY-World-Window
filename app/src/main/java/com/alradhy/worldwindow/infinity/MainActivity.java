@@ -22,22 +22,35 @@ public final class MainActivity extends Activity implements CinematicView.Action
     private final ExecutorService placeSearch=Executors.newSingleThreadExecutor();
     private WorldStore world;
     private final Set<String> enriched=new HashSet<>();
-    private final java.util.concurrent.atomic.AtomicBoolean counting=new java.util.concurrent.atomic.AtomicBoolean();
-    private int ticks;
     private final Set<String> queued=Collections.synchronizedSet(new HashSet<>());
     private final Handler handler=new Handler(Looper.getMainLooper());
-    private boolean resumed=false;
-    private final Runnable refresh=new Runnable(){
-        @Override public void run(){
-            if(resumed&&surface!=null){
-                surface.refreshPictures();
-                // Picture totals change only while packs download; recount every 10 s, off the UI thread.
-                if(ticks++%4==0)countPictures();
-                surface.invalidate();
-                handler.postDelayed(this,2500);
-            }
+    private SharedPreferences videoProgress,pictureProgress;
+    private boolean resumed,counting,countAgain;
+    private final Runnable progressChanged=this::updateProgress;
+    private final Runnable summaryChanged=this::countPictures;
+    private final SharedPreferences.OnSharedPreferenceChangeListener progressListener=(prefs,key)->{
+        handler.removeCallbacks(progressChanged);
+        handler.postDelayed(progressChanged,80);
+    };
+    private final BroadcastReceiver packChanges=new BroadcastReceiver(){
+        @Override public void onReceive(Context context,Intent intent){
+            surface.packChanged(intent.getStringExtra("scene_id"));
+            scheduleSummary();
         }
     };
+
+    private void updateProgress(){
+        if(!resumed)return;
+        surface.setProgress(videoProgress,pictureProgress);
+        surface.refreshScene();
+        if(!OfflineDownloadService.isSavingPictures())scheduleSummary();
+    }
+
+    private void scheduleSummary(){
+        if(!resumed||handler.hasCallbacks(summaryChanged))return;
+        handler.postDelayed(summaryChanged,350);
+    }
+
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
         getWindow().getDecorView().setSystemUiVisibility(
@@ -49,42 +62,60 @@ public final class MainActivity extends Activity implements CinematicView.Action
         world=new WorldStore(this);
         resolver=new MediaResolver(library);
         surface=new CinematicView(this,library,this);
+        videoProgress=getSharedPreferences("infinity_downloads",MODE_PRIVATE);
+        pictureProgress=getSharedPreferences("infinity_pictures",MODE_PRIVATE);
         browsing=getSharedPreferences("infinity_browsing",MODE_PRIVATE);
         surface.restoreSelection(browsing.getString("category","ALL"),browsing.getString("scene",""));
         setContentView(surface);
         surface.requestFocus();
         prefetch(surface.firstToResolve());
         // Upgrade previously added places' descriptions without touching their media.
-        for(Scene scene:library.scenes)if(world.isCustom(scene)&&!world.info(scene).has("extractAr")){
-            worldWorker.execute(()->{
-                try{world.refresh(scene);runOnUiThread(()->{if(!isDestroyed())surface.invalidate();});}
-                catch(Exception ignored){/* Offline: keep Arabic notice and retry on the next launch. */}
-            });
-        }
+        worldWorker.execute(()->{
+            for(String id:world.customIds()){
+                if(Thread.currentThread().isInterrupted())return;
+                Scene scene=library.byId(id);
+                if(scene==null||world.info(scene).has("extractAr"))continue;
+                try{
+                    world.refresh(scene);
+                    runOnUiThread(surface::refreshScene);
+                }catch(Exception ignored){/* Offline: retry on the next launch. */}
+            }
+        });
     }
+
     private void prefetch(List<Scene> items){
         for(Scene scene:items){
-            if(scene.hasSource()||scene.isOffline()||!queued.add(scene.id))continue;
+            if(scene.hasSource()||!queued.add(scene.id))continue;
             discovery.execute(()->{
-                try{resolver.resolve(scene);}
+                try{if(!scene.isOffline())resolver.resolve(scene);}
                 finally{
                     queued.remove(scene.id);
-                    if(surface!=null)surface.postInvalidate();
+                    runOnUiThread(()->{
+                        if(!isDestroyed()&&surface.firstToResolve().contains(scene))surface.refreshScene();
+                    });
                 }
             });
         }
     }
+
     private void countPictures(){
-        if(!counting.compareAndSet(false,true))return;
-        try{
-            stats.execute(()->{
-                try{
-                    GalleryStore.Summary summary=GalleryStore.summarize(this,library.scenes);
-                    if(surface!=null)surface.setPictureSummary(summary);
-                }catch(Exception ignored){/* totals are informational */}
-                finally{counting.set(false);}
-            });
-        }catch(java.util.concurrent.RejectedExecutionException closed){counting.set(false);}
+        if(!resumed)return;
+        if(counting){countAgain=true;return;}
+        counting=true;
+        stats.execute(()->{
+            try{
+                GalleryStore.Summary summary=GalleryStore.summarize(this,library.scenes);
+                String footer=library.scenes.size()+" DESTINATIONS   •   "+library.offlineCount()+
+                    " OFFLINE   •   "+summary.photos+" PHOTOS   •   "+
+                    library.human(library.offlineBytes()+summary.bytes)+" SAVED";
+                handler.post(()->{if(resumed)surface.setSummary(summary,footer);});
+            }finally{
+                handler.post(()->{
+                    counting=false;
+                    if(countAgain){countAgain=false;scheduleSummary();}
+                });
+            }
+        });
     }
     @Override public void ambient(Scene scene,int start){
         world.prefs.edit().putInt("mix",0).apply();
@@ -137,7 +168,7 @@ public final class MainActivity extends Activity implements CinematicView.Action
     @Override public void sceneChanged(Scene scene){
         prefetch(Collections.singletonList(scene));
         if(enriched.add(scene.id))worldWorker.execute(()->{
-            try{world.refresh(scene);runOnUiThread(()->surface.invalidate());}catch(Exception ignored){}
+            try{world.refresh(scene);runOnUiThread(surface::refreshScene);}catch(Exception ignored){}
         });
     }
     private void message(String value){if(!isDestroyed())Toast.makeText(this,value,Toast.LENGTH_LONG).show();}
@@ -229,7 +260,7 @@ public final class MainActivity extends Activity implements CinematicView.Action
                 "\nمواقيت الشمس: Open-Meteo • CC BY 4.0 • محفوظة حتى ٧ أيام")
             .setNegativeButton("Close",null).setPositiveButton("تحديث الوصف",(d,w)->{
                 message("Refreshing place information…");worldWorker.execute(()->{
-                    try{world.refresh(scene);runOnUiThread(()->{if(!isDestroyed())about(scene);});}
+                    try{world.refresh(scene);runOnUiThread(()->{if(!isDestroyed()){surface.refreshScene();about(scene);}});}
                     catch(Exception e){runOnUiThread(()->message("Refresh unavailable; saved facts retained"));}
                 });
             }).show();
@@ -317,7 +348,8 @@ public final class MainActivity extends Activity implements CinematicView.Action
                 .setPositiveButton("Remove",(dialog,which)->{
                     boolean done=library.deleteOffline(scene);
                     Toast.makeText(this,done?"Offline copy removed":"Could not remove a busy file",Toast.LENGTH_LONG).show();
-                    surface.invalidate();
+                    surface.refreshScene();
+                    scheduleSummary();
                 }).show();
             return;
         }
@@ -347,12 +379,26 @@ public final class MainActivity extends Activity implements CinematicView.Action
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},104);
     }
     @Override protected void onResume(){
-        super.onResume();resumed=true;ticks=0;handler.removeCallbacks(refresh);handler.post(refresh);
-        if(surface!=null)surface.requestFocus();
+        super.onResume();
+        resumed=true;
+        videoProgress.registerOnSharedPreferenceChangeListener(progressListener);
+        pictureProgress.registerOnSharedPreferenceChangeListener(progressListener);
+        IntentFilter packs=new IntentFilter(GalleryStore.PACK_CHANGED);
+        if(Build.VERSION.SDK_INT>=33)registerReceiver(packChanges,packs,Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(packChanges,packs);
+        surface.resumeUpdates();
+        updateProgress();
+        scheduleSummary();
+        surface.requestFocus();
     }
     @Override protected void onPause(){
         resumed=false;
-        handler.removeCallbacks(refresh);
+        surface.pauseUpdates();
+        videoProgress.unregisterOnSharedPreferenceChangeListener(progressListener);
+        pictureProgress.unregisterOnSharedPreferenceChangeListener(progressListener);
+        unregisterReceiver(packChanges);
+        handler.removeCallbacks(progressChanged);
+        handler.removeCallbacks(summaryChanged);
         Scene selected=surface.selected();
         if(selected!=null){
             browsing.edit().putString("category",surface.selectedCategory()).putString("scene",selected.id).apply();

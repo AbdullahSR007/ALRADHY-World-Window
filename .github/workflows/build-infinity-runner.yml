@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/infinity-v1-1-download-safety
+      - feature/infinity-10010-performance-ux
     paths:
       - '.github/workflows/build-infinity-runner.yml'
       - 'app/**'
@@ -19,7 +20,7 @@ env:
   # Certificate of the APK installed on the TV (builds 10001-10006). An APK signed with any
   # other key would force an uninstall and lose downloads, so it is never published.
   INFINITY_EXPECTED_CERT: f2d4cc3e847c93eca2f6024b30ca1acdde1c44a4bddcef78bf585e9c76afc5f8
-  INFINITY_INSTALLED_VERSION: '10006'
+  INFINITY_INSTALLED_VERSION: ${{ github.ref_name == 'feature/infinity-v1-1-download-safety' && '10006' || '10009' }}
 
 concurrency:
   group: infinity-self-hosted-debug
@@ -120,7 +121,7 @@ jobs:
           $env:INFINITY_STORE_PASS = 'android'
           $env:INFINITY_KEY_PASS = 'android'
           $env:INFINITY_STORE_TYPE = 'PKCS12'
-          gradle --no-daemon :app:assembleRelease
+          gradle --no-daemon :app:testReleaseUnitTest :app:assembleRelease
           if ($LASTEXITCODE -ne 0) { throw "Gradle build failed: $LASTEXITCODE" }
 
       - name: Verify in-place update compatibility
@@ -163,6 +164,7 @@ jobs:
           retention-days: 14
 
       - name: Publish verified APK as a pre-release
+        if: github.ref_name == 'feature/infinity-v1-1-download-safety'
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

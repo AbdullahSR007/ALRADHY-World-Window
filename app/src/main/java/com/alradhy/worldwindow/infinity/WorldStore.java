@@ -19,29 +19,40 @@ final class WorldStore {
     WorldStore(Context context){prefs=context.getSharedPreferences("infinity_world_v1",Context.MODE_PRIVATE);}
     boolean favourite(Scene s){return prefs.getBoolean("star:"+s.id,false);}
     boolean photoFavourite(Scene s,String file){return prefs.getBoolean("photo:"+s.id+":"+file,false);}
-    boolean hasFavouritePhotos(Scene s){
-        String prefix="photo:"+s.id+":";
-        for(Map.Entry<String,?> entry:prefs.getAll().entrySet())
-            if(entry.getKey().startsWith(prefix)&&Boolean.TRUE.equals(entry.getValue()))return true;
-        return false;
+    boolean hasFavouritePhotos(Scene scene){return favouritePhotoIds().contains(scene.id);}
+    Set<String> favouritePhotoIds(){
+        Set<String> ids=new HashSet<>();
+        for(Map.Entry<String,?> entry:prefs.getAll().entrySet()){
+            String key=entry.getKey();
+            if(!key.startsWith("photo:")||!Boolean.TRUE.equals(entry.getValue()))continue;
+            int end=key.indexOf(':',6);
+            if(end>6)ids.add(key.substring(6,end));
+        }
+        return ids;
     }
     void toggle(Scene s){prefs.edit().putBoolean("star:"+s.id,!favourite(s)).apply();}
     void togglePhoto(Scene s,String file){prefs.edit().putBoolean("photo:"+s.id+":"+file,!photoFavourite(s,file)).apply();}
     JSONObject info(Scene s){try{return new JSONObject(prefs.getString("info:"+s.id,"{}"));}catch(Exception e){return new JSONObject();}}
     String description(Scene s){
-        String value=info(s).optString("extractAr","");
+        return description(s,info(s));
+    }
+    String description(Scene s,JSONObject data){
+        String value=data.optString("extractAr","");
         return value.matches("(?s).*[\\u0600-\\u06ff].*")?value:ArabicDescriptions.forScene(s);
     }
-    String zone(Scene s){return info(s).optString("zone",s.id.startsWith("U")?"Unknown":s.zone);}
-    String daylightArabic(Scene s){
+    String zone(Scene s){return zone(s,info(s));}
+    String zone(Scene s,JSONObject data){return data.optString("zone",s.id.startsWith("U")?"Unknown":s.zone);}
+    String daylightArabic(Scene s){return daylightArabic(s,info(s));}
+    String daylightArabic(Scene s,JSONObject data){
         if(s.category.equals("SPACE"))return "مشاهد الفضاء";
-        return daylight(s).replace("Sun times unavailable","مواقيت الشمس غير متوفرة").replace("Sun times need refresh","مواقيت الشمس بحاجة إلى تحديث").replace("Daylight","نهار").replace("Night","ليل");
+        return daylight(s,data).replace("Sun times unavailable","مواقيت الشمس غير متوفرة").replace("Sun times need refresh","مواقيت الشمس بحاجة إلى تحديث").replace("Daylight","نهار").replace("Night","ليل");
     }
-    String daylight(Scene s){
+    String daylight(Scene s){return daylight(s,info(s));}
+    String daylight(Scene s,JSONObject data){
         try{
-            JSONObject data=info(s),daily=data.optJSONObject("daily");
+            JSONObject daily=data.optJSONObject("daily");
             if(daily==null)return "Sun times unavailable";
-            ZonedDateTime now=ZonedDateTime.now(ZoneId.of(zone(s)));
+            ZonedDateTime now=ZonedDateTime.now(ZoneId.of(zone(s,data)));
             JSONArray dates=daily.getJSONArray("time");
             for(int i=0;i<dates.length();i++)if(dates.getString(i).equals(now.toLocalDate().toString())){
                 String rise=daily.getJSONArray("sunrise").optString(i),set=daily.getJSONArray("sunset").optString(i);
@@ -82,9 +93,22 @@ final class WorldStore {
             throw new java.io.IOException("Could not save this place");
         return customScene(id,title,arabic,category);
     }
-    synchronized boolean isCustom(Scene scene){
-        return custom().stream().anyMatch(s->s.id.equals(scene.id));
+    private String customIndex;
+    private Set<String> customIds=Collections.emptySet();
+    synchronized Set<String> customIds(){
+        String saved=prefs.getString("places","[]");
+        if(!saved.equals(customIndex)){
+            Set<String> ids=new HashSet<>();
+            try{
+                JSONArray places=new JSONArray(saved);
+                for(int i=0;i<places.length();i++)ids.add(places.getJSONObject(i).getString("id"));
+            }catch(JSONException ignored){}
+            customIds=Collections.unmodifiableSet(ids);
+            customIndex=saved;
+        }
+        return customIds;
     }
+    boolean isCustom(Scene scene){return customIds().contains(scene.id);}
     synchronized void remove(Scene scene)throws Exception{
         if(!isCustom(scene))throw new IllegalArgumentException("لا يمكن حذف الأماكن الأصلية");
         JSONArray old=new JSONArray(prefs.getString("places","[]")),remaining=new JSONArray();

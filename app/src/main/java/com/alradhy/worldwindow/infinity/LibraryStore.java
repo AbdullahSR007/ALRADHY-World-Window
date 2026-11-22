@@ -35,7 +35,8 @@ public final class LibraryStore {
         if(category.equals("MY WORLD")){
             ArrayList<Scene> favourites=new ArrayList<>();
             WorldStore world=new WorldStore(app);
-            for(Scene s:scenes)if(world.favourite(s)||world.hasFavouritePhotos(s)||s.id.startsWith("U"))favourites.add(s);
+            Set<String> photoIds=world.favouritePhotoIds();
+            for(Scene s:scenes)if(world.favourite(s)||photoIds.contains(s.id)||s.id.startsWith("U"))favourites.add(s);
             return favourites;
         }
         if(category.equals("ALL"))return new ArrayList<>(scenes);

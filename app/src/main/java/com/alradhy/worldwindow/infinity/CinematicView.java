@@ -1,6 +1,12 @@
 package com.alradhy.worldwindow.infinity;
 
 import android.content.Context;
+import android.content.SharedPreferences;
+import android.text.TextPaint;
+import android.text.TextUtils;
+import android.util.LruCache;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import android.graphics.*;
 import android.view.*;
 import java.time.*;
@@ -48,16 +54,149 @@ public final class CinematicView extends View {
     private final Typeface medium=Typeface.create("sans-serif-medium",Typeface.NORMAL);
     private final DateTimeFormatter timeFormat=DateTimeFormatter.ofPattern("HH:mm",Locale.US);
 
+    private static final LinearGradient HERO_EMPTY=gradient(220,150,1300,730,0xff122d39,0xff255c6a,0xff0a2731);
+    private static final LinearGradient HERO_BOTTOM=gradient(222,400,222,730,0x00101b24,0xe908171f);
+    private static final LinearGradient HERO_LEFT=gradient(222,157,700,157,0x7704121a,0x00000000);
+    private static final LinearGradient CARD_EMPTY=gradient(0,0,308,205,0xff255264,0xff102e3d);
+    private static final LinearGradient CARD_BOTTOM=gradient(0,80,0,205,0x00101920,0xee081821);
+    private static LinearGradient gradient(float x,float y,float endX,float endY,int...colors){
+        return new LinearGradient(x,y,endX,endY,colors,null,Shader.TileMode.CLAMP);
+    }
+    private final Matrix imageMatrix=new Matrix();
+    private final LruCache<Bitmap,BitmapShader> shaders=new LruCache<>(8);
+    private final LruCache<String,String> fitted=new LruCache<>(256);
+    private final TextPaint textPaint=new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private Bitmap background;
+    private final WorldStore world;
+    private final ExecutorService models=Executors.newSingleThreadExecutor();
+    private final ExecutorService packs=Executors.newSingleThreadExecutor();
+    private int modelRequest,pictureRequest;
+    private boolean closed,reloadPicturesPending,pictureOpening;
+    private volatile boolean active;
+    private boolean awaitingSelection;
+    private String pictureSceneId;
+    private String footer="",videoProgress="",pictureProgress="";
+    private boolean downloading,savingPictures,unfinished,videoInterrupted,pictureInterrupted;
+    private float videoFraction,pictureFraction;
+    private final Map<String,MediaStatus> mediaStates=new LinkedHashMap<>();
+    private SceneDetails details;
+    private String positionLabel="";
+    private final Runnable posterReady=()->post(()->{if(active)invalidate();});
+    private final Runnable minuteTick=new Runnable(){
+        @Override public void run(){
+            refreshScene();
+            scheduleMinute();
+        }
+    };
+
+    private static final class MediaStatus {
+        final boolean offline,photo;
+        final String label;
+        MediaStatus(Scene scene){
+            offline=scene.isOffline();
+            photo=offline&&scene.localMedia.endsWith("-offline-photo.img");
+            label=scene.downloading?"DOWNLOADING":offline?(photo?"OFFLINE PICTURE":"OFFLINE READY"):
+                scene.resolving?"DISCOVERING":scene.hasSource()?"ONLINE READY":
+                !scene.error.isEmpty()?"RETRY AVAILABLE":"AWAITING DISCOVERY";
+        }
+    }
+
+    private static final class SceneDetails {
+        final Scene scene;
+        final String description,zone,sun,clock;
+        final boolean favourite;
+        SceneDetails(WorldStore world,Scene scene,DateTimeFormatter format){
+            this.scene=scene;
+            org.json.JSONObject info=world.info(scene);
+            description=world.description(scene,info);
+            zone=world.zone(scene,info);
+            sun=world.daylightArabic(scene,info);
+            favourite=world.favourite(scene);
+            String value;
+            try{value=ZonedDateTime.now(ZoneId.of(zone)).format(format);}
+            catch(java.time.DateTimeException invalidZone){value="--:--";}
+            clock=value;
+        }
+    }
+
+    void resumeUpdates(){
+        active=true;
+        refreshScene();
+        refreshPictures();
+        scheduleMinute();
+    }
+    void pauseUpdates(){
+        active=false;
+        removeCallbacks(minuteTick);
+    }
+    private void scheduleMinute(){
+        removeCallbacks(minuteTick);
+        if(active)postDelayed(minuteTick,60_000-System.currentTimeMillis()%60_000);
+    }
+
+    void refreshScene(){
+        if(!active||closed)return;
+        removeCallbacks(updateScene);
+        post(updateScene);
+    }
+
+    private final Runnable updateScene=this::updateSceneSnapshot;
+    private void updateSceneSnapshot(){
+        if(!active||closed)return;
+        final int request=++modelRequest;
+        final List<Scene> page=firstToResolve();
+        final Scene selected=selected();
+        models.execute(()->{
+            Map<String,MediaStatus> statuses=new HashMap<>();
+            for(Scene item:page)statuses.put(item.id,new MediaStatus(item));
+            SceneDetails snapshot=selected==null?null:new SceneDetails(world,selected,timeFormat);
+            post(()->{
+                if(closed||!active||request!=modelRequest||selected!=selected())return;
+                if(mediaStates.size()>200)mediaStates.clear();
+                mediaStates.putAll(statuses);
+                details=snapshot;
+                awaitingSelection=false;
+                invalidate();
+            });
+        });
+    }
+
+    void setProgress(SharedPreferences video,SharedPreferences picture){
+        downloading=OfflineDownloadService.isRunning();
+        savingPictures=OfflineDownloadService.isSavingPictures();
+        videoProgress=video.getString("status","");
+        pictureProgress=WorldStore.pictureStatus(picture.getString("status",""));
+        videoInterrupted=video.getBoolean("active",false);
+        pictureInterrupted=picture.getBoolean("active",false);
+        unfinished=videoInterrupted||video.getInt("errors",0)>0||
+            videoProgress.startsWith("Paused")||videoProgress.startsWith("Storage low");
+        videoFraction=fraction(video);
+        pictureFraction=fraction(picture);
+        invalidate();
+    }
+
+    private float fraction(SharedPreferences prefs){
+        int total=prefs.getInt("total",0);
+        return total>0?(float)prefs.getInt("done",0)/total:0;
+    }
+
     public CinematicView(Context c,LibraryStore store,Actions listener){
-        super(c);library=store;actions=listener;posters=new PosterLoader(store);
+        super(c);library=store;actions=listener;posters=new PosterLoader(store);world=new WorldStore(c);
         visible.addAll(store.scenes);
-        setFocusable(true);setFocusableInTouchMode(true);setLayerType(View.LAYER_TYPE_HARDWARE,null);
+        setFocusable(true);setFocusableInTouchMode(true);
     }
     public Scene selected(){return visible.isEmpty()?null:visible.get(Math.max(0,Math.min(index,visible.size()-1)));}
     String selectedCategory(){return SceneCatalog.CATEGORIES[categoryIndex];}
-    void setPictureSummary(GalleryStore.Summary summary){
-        pictures=summary==null?GalleryStore.Summary.EMPTY:summary;
-        postInvalidate();
+    void setSummary(GalleryStore.Summary summary,String status){
+        pictures=summary;
+        footer=status;
+        invalidate();
+    }
+    private void selectionUpdated(){
+        positionLabel=String.format(Locale.US,"%02d  /  %02d",index+1,visible.size());
+        awaitingSelection=active;
+        refreshScene();
+        if(!active)invalidate();
     }
     private int chipAt(float x){return Math.max(0,Math.min(TOOLS_CHIP,(int)((x-CHIP_X)/CHIP_STEP)));}
     void restoreSelection(String category,String sceneId){
@@ -67,9 +206,10 @@ public final class CinematicView extends View {
         for(int i=0;i<visible.size();i++){
             if(visible.get(i).id.equals(sceneId)){
                 index=i;
-                return;
+                break;
             }
         }
+        selectionUpdated();
     }
     public List<Scene> firstToResolve(){
         ArrayList<Scene> result=new ArrayList<>();
@@ -79,7 +219,7 @@ public final class CinematicView extends View {
     }
     public void selectCategory(int i){
         showCategory(Math.max(0,Math.min(SceneCatalog.CATEGORIES.length-1,i)));
-        invalidate();actions.categoryChanged(firstToResolve());
+        selectionUpdated();actions.categoryChanged(firstToResolve());
         Scene s=selected();if(s!=null)actions.sceneChanged(s);
     }
     private void showCategory(int category){
@@ -97,35 +237,71 @@ public final class CinematicView extends View {
         }
         if(visible.isEmpty())return;
         index=(index+d+visible.size())%visible.size();
-        invalidate();actions.categoryChanged(firstToResolve());
+        selectionUpdated();actions.categoryChanged(firstToResolve());
         Scene s=selected();if(s!=null)actions.sceneChanged(s);
     }
     private void showPictures(Scene scene){
         pictureStore=new GalleryStore(getContext(),scene);
+        pictureSceneId=scene.id;
         photoIndex=0;
+        pictureOpening=true;
         refreshPictures();
-        focus=photos.isEmpty()?2:1;
-        buttonIndex=photos.isEmpty()?2:1;
         invalidate();
     }
     boolean closePictures(){
         if(pictureStore==null)return false;
         pictureStore=null;
+        pictureSceneId=null;
+        pictureOpening=false;
+        pictureRequest++;
         photos=Collections.emptyList();
         focus=1;
         invalidate();
         return true;
     }
-    void refreshPictures(){
-        if(pictureStore==null)return;
-        photos=pictureStore.saved();
-        photoIndex=Math.max(0,Math.min(photoIndex,photos.size()-1));
+    void packChanged(String id){
+        if(Objects.equals(id,pictureSceneId))refreshPictures();
     }
+    void refreshPictures(){
+        if(pictureStore==null||closed)return;
+        if(reloadPicturesPending)return;
+        reloadPicturesPending=true;
+        post(reloadPictures);
+    }
+    private final Runnable reloadPictures=()->{
+        reloadPicturesPending=false;
+        GalleryStore store=pictureStore;
+        if(store==null||closed)return;
+        int request=++pictureRequest;
+        packs.execute(()->{
+            List<GalleryStore.Photo> saved=store.saved();
+            post(()->{
+                if(closed||pictureStore!=store||pictureRequest!=request)return;
+                photos=saved;
+                photoIndex=Math.max(0,Math.min(photoIndex,photos.size()-1));
+                if(pictureOpening){
+                    pictureOpening=false;
+                    focus=photos.isEmpty()?2:1;
+                    buttonIndex=photos.isEmpty()?2:1;
+                }
+                invalidate();
+            });
+        });
+    };
+    @Override protected void onSizeChanged(int width,int height,int oldWidth,int oldHeight){
+        super.onSizeChanged(width,height,oldWidth,oldHeight);
+        if(width==0||height==0)return;
+        background=Bitmap.createBitmap(Math.min(width,1920),Math.min(height,1080),Bitmap.Config.RGB_565);
+        Canvas canvas=new Canvas(background);
+        canvas.scale(background.getWidth()/1920f,background.getHeight()/1080f);
+        paintBackground(canvas);
+    }
+    private final Rect backgroundBounds=new Rect(0,0,1920,1080);
     @Override protected void onDraw(Canvas raw){
         super.onDraw(raw);
         float sx=getWidth()/1920f,sy=getHeight()/1080f;
         raw.save();raw.scale(sx,sy);
-        paintBackground(raw);
+        if(background!=null){p.setColor(Color.WHITE);p.setShader(null);raw.drawBitmap(background,null,backgroundBounds,p);}
         drawRail(raw);
         drawHeader(raw);
         Scene s=selected();
@@ -138,7 +314,6 @@ public final class CinematicView extends View {
         else drawStrip(raw);
         drawFooter(raw);
         raw.restore();
-        postInvalidateDelayed(15000);
     }
     private void paintBackground(Canvas c){
         p.setShader(new LinearGradient(0,0,1900,1080,new int[]{0xff06111a,0xff0a2733,0xff09121b},null,Shader.TileMode.CLAMP));
@@ -189,21 +364,22 @@ public final class CinematicView extends View {
     }
     private void drawHero(Canvas c,Scene s){
         rounded(c,222,157,1118,558,25,0xff0b303f);
-        Bitmap bitmap=posters.peek(s,()->postInvalidate());
+        MediaStatus media=mediaStates.get(s.id);
+        Bitmap bitmap=posters.peek(s,media!=null&&media.offline,1120,560,posterReady);
         if(bitmap!=null)image(c,bitmap,222,157,1118,558,25);
         else {
-            p.setShader(new LinearGradient(220,150,1300,730,
-                new int[]{0xff122d39,0xff255c6a,0xff0a2731},null,Shader.TileMode.CLAMP));
+            p.setShader(HERO_EMPTY);
             c.drawRoundRect(222,157,1340,715,25,25,p);p.setShader(null);
             drawGlobe(c,840,410);
         }
         // Overlay: text stays readable regardless of photographic highlights.
-        p.setShader(new LinearGradient(222,400,222,730,0x00101b24,0xe908171f,Shader.TileMode.CLAMP));
+        p.setShader(HERO_BOTTOM);
         c.drawRoundRect(222,157,1340,715,25,25,p);p.setShader(null);
-        p.setShader(new LinearGradient(222,157,700,157,0x7704121a,0x00000000,Shader.TileMode.CLAMP));
+        p.setShader(HERO_LEFT);
         c.drawRoundRect(222,157,1340,715,25,25,p);p.setShader(null);
-        pill(c,255,194,s.isOffline()?"● OFFLINE COLLECTION":s.isVideo()?"▶ CINEMATIC FOOTAGE":"◈ WORLD GALLERY",
-             s.isOffline()?0xff408e81:0xaa162e3b);
+        boolean offline=media!=null&&media.offline;
+        pill(c,255,194,offline?"● OFFLINE COLLECTION":s.mime.startsWith("video/")?"▶ CINEMATIC FOOTAGE":"◈ WORLD GALLERY",
+             offline?0xff408e81:0xaa162e3b);
         String title=fit(s.title,76,950);
         label(c,title,269,567,Math.min(76,title.length()>20?62:76),CREAM,heading,false);
         label(c,s.arabic,274,628,37,0xffe9c891,medium,false);
@@ -225,13 +401,13 @@ public final class CinematicView extends View {
             label(c,"Save pictures to view them here, even offline",271,487,25,PALE,medium,false);
         }else{
             GalleryStore.Photo photo=photos.get(photoIndex);
-            Bitmap bitmap=posters.peekPicture(pictureStore.file(photo),850,this::postInvalidate);
+            Bitmap bitmap=posters.peekPicture(pictureStore.file(photo),1120,560,posterReady);
             if(bitmap!=null){
                 float scale=Math.min(1118f/bitmap.getWidth(),465f/bitmap.getHeight());
                 float wide=bitmap.getWidth()*scale, high=bitmap.getHeight()*scale;
                 image(c,bitmap,222+(1118-wide)/2,157+(465-high)/2,wide,high,4);
             }
-            label(c,fit(new WorldStore(getContext()).description(scene),26,1000),253,653,26,CREAM,heading,false);
+            label(c,fit(details!=null&&details.scene==scene?details.description:"",26,1000),253,653,26,CREAM,heading,false);
             String credit=photo.credit.isEmpty()?photo.provider:photo.credit+" • "+photo.provider;
             label(c,fit(credit+" • "+photo.license,18,1035),253,686,18,PALE,medium,false);
         }
@@ -243,7 +419,7 @@ public final class CinematicView extends View {
         label(c,"PICTURES",1402,215,27,GOLD,medium,false);
         label(c,fit(scene.title,42,430),1402,313,42,CREAM,heading,false);
         label(c,photos.isEmpty()?"لم تُحفظ صور بعد":photos.size()+" صورة محفوظة • جاهزة للعرض",1404,371,23,PALE,medium,false);
-        boolean running=OfflineDownloadService.isSavingPictures();
+        boolean running=savingPictures;
         action(c,0,1404,430,"←    BACK TO DESTINATIONS",false);
         action(c,1,1404,495,"▶    SLIDESHOW • ALL PLACES",false);
         action(c,2,1404,560,photos.isEmpty()?"↓    حفظ الصور":"▧    إدارة الصور المحفوظة",false);
@@ -261,7 +437,7 @@ public final class CinematicView extends View {
             GalleryStore.Photo photo=photos.get(j);
             int x=228+i*328;
             rounded(c,x,789,308,205,15,0xff183744);
-            Bitmap bitmap=posters.peekPicture(pictureStore.file(photo),240,this::postInvalidate);
+            Bitmap bitmap=posters.peekPicture(pictureStore.file(photo),320,213,posterReady);
             if(bitmap!=null)image(c,bitmap,x,789,308,205,15);
             if(j==photoIndex)outline(c,x-3,786,314,211,17,GOLD,focus==1?4.3f:2.5f);
         }
@@ -269,29 +445,23 @@ public final class CinematicView extends View {
     private void drawDetails(Canvas c,Scene s){
         rounded(c,1360,157,516,558,26,0xdd102b35);
         outline(c,1360,157,516,558,26,0x6669979b,1.8f);
-        label(c,new WorldStore(getContext()).favourite(s)?"♥  MY WORLD":"A WINDOW TO WONDER",1401,207,21,GOLD,medium,false);
-        label(c,String.format(Locale.US,"%02d  /  %02d",index+1,visible.size()),
-             1815,207,22,PALE,medium,true);
-        label(c,new WorldStore(getContext()).daylightArabic(s),1402,277,20,0xff9bb7bd,medium,false);
+        SceneDetails data=details!=null&&details.scene==s?details:null;
+        MediaStatus media=mediaStates.get(s.id);
+        boolean offline=media!=null&&media.offline;
+        label(c,data!=null&&data.favourite?"♥  MY WORLD":"A WINDOW TO WONDER",1401,207,21,GOLD,medium,false);
+        label(c,positionLabel,1815,207,22,PALE,medium,true);
+        label(c,data==null?"":data.sun,1402,277,20,0xff9bb7bd,medium,false);
         label(c,fit(s.title,52,436),1402,344,52,CREAM,heading,false);
-        String clock;
-        try{clock=ZonedDateTime.now(ZoneId.of(new WorldStore(getContext()).zone(s))).format(timeFormat);}
-        catch(Exception e){clock="--:--";}
-        label(c,clock,1404,414,48,GOLD,medium,false);
-        label(c,fit("LOCAL TIME • "+new WorldStore(getContext()).zone(s).replace('_',' '),20,265),1560,410,20,PALE,medium,false);
-        android.content.SharedPreferences downloads=getContext().getSharedPreferences("infinity_downloads",Context.MODE_PRIVATE);
-        boolean downloading=OfflineDownloadService.isRunning();
-        String downloadStatus=downloads.getString("status","");
-        boolean unfinished=downloads.getBoolean("active",false) || downloads.getInt("errors",0)>0
-            || downloadStatus.startsWith("Paused") || downloadStatus.startsWith("Storage low");
+        label(c,data==null?"--:--":data.clock,1404,414,48,GOLD,medium,false);
+        if(data!=null)label(c,fit("LOCAL TIME • "+data.zone.replace('_',' '),20,265),1560,410,20,PALE,medium,false);
         action(c,0,1404,430,"▶    EXPLORE NOW",false);
         int saved=pictures.count(s);
         action(c,1,1404,495,saved>0?"▧    PICTURES  •  "+saved+" SAVED":"▧    PICTURES",false);
-        action(c,2,1404,560,s.isOffline()?"×    REMOVE OFFLINE COPY":"↓    SAVE THIS SCENE",false);
-        action(c,3,1404,625,OfflineDownloadService.isSavingPictures()?"Ⅱ    PAUSE PICTURE DOWNLOADS":
+        action(c,2,1404,560,offline?"×    REMOVE OFFLINE COPY":"↓    SAVE THIS SCENE",false);
+        action(c,3,1404,625,savingPictures?"Ⅱ    PAUSE PICTURE DOWNLOADS":
             downloading?"Ⅱ    PAUSE DOWNLOADS":
             unfinished?"⇩    RESUME DOWNLOADS":"⇩    DOWNLOAD ALL",true);
-        label(c,s.status(),1408,703,18,s.isOffline()?0xff91e0c4:0xffb9ccd0,medium,false);
+        label(c,media==null?"":media.label,1408,703,18,offline?0xff91e0c4:0xffb9ccd0,medium,false);
     }
     private void action(Canvas c,int n,int x,int y,String name,boolean warm){
         int fill=warm?0xffa87b42:0xff254a58;
@@ -308,20 +478,19 @@ public final class CinematicView extends View {
             Scene s=visible.get(j);
             int x=228+i*328,y=789;
             rounded(c,x,y,308,205,15,0xff183744);
-            Bitmap bmp=posters.peek(s,()->postInvalidate());
+            MediaStatus media=mediaStates.get(s.id);
+            boolean offline=media!=null&&media.offline;
+            Bitmap bmp=posters.peek(s,offline,320,213,posterReady);
             if(bmp!=null)image(c,bmp,x,y,308,205,15);
             else{
-                p.setShader(new LinearGradient(x,y,x+308,y+205,
-                    new int[]{0xff255264,0xff102e3d},null,Shader.TileMode.CLAMP));
-                c.drawRoundRect(x,y,x+308,y+205,15,15,p);p.setShader(null);
+                cardShade(c,CARD_EMPTY,x,y);
                 p.setStyle(Paint.Style.STROKE);p.setColor(0x447ed4d8);p.setStrokeWidth(2);
                 c.drawCircle(x+154,y+80,46,p);p.setStyle(Paint.Style.FILL);
             }
-            p.setShader(new LinearGradient(x,y+80,x,y+205,0x00101920,0xee081821,Shader.TileMode.CLAMP));
-            c.drawRoundRect(x,y,x+308,y+205,15,15,p);p.setShader(null);
+            cardShade(c,CARD_BOTTOM,x,y);
             label(c,fit(s.title,29,280),x+16,y+165,29,CREAM,medium,false);
-            label(c,s.hasOfflinePicture()?"● PHOTO SAVED":s.isOffline()?"● SAVED":s.isVideo()?"▶ VIDEO":"◇ "+s.category,
-                x+17,y+188,15,s.isOffline()?0xff8edac5:GOLD,medium,false);
+            label(c,media!=null&&media.photo?"● PHOTO SAVED":offline?"● SAVED":s.mime.startsWith("video/")?"▶ VIDEO":"◇ "+s.category,
+                x+17,y+188,15,offline?0xff8edac5:GOLD,medium,false);
             int pack=pictures.count(s);
             if(pack>0){
                 String badge="▧ "+pack;
@@ -334,33 +503,37 @@ public final class CinematicView extends View {
                 focus==1?GOLD:0xffa5bebb,focus==1?4.3f:2.5f);
         }
     }
+    private void cardShade(Canvas c,Shader shade,int x,int y){
+        c.save();
+        c.translate(x,y);
+        p.setShader(shade);
+        c.drawRoundRect(0,0,308,205,15,15,p);
+        p.setShader(null);
+        c.restore();
+    }
     private void drawFooter(Canvas c){
         rounded(c,227,1015,1640,2,0,0x665c878a);
-        GalleryStore.Summary gallery=pictures;
-        String summary=library.scenes.size()+" DESTINATIONS   •   "+library.offlineCount()+
-            " OFFLINE   •   "+gallery.photos+" PHOTOS   •   "+
-            library.human(library.offlineBytes()+gallery.bytes)+" SAVED";
-        label(c,summary,230,1052,19,PALE,medium,false);
-        boolean picturesProgress=OfflineDownloadService.isSavingPictures()
-            || pictureStore!=null && !OfflineDownloadService.isRunning();
-        android.content.SharedPreferences downloads=getContext().getSharedPreferences(
-            picturesProgress?"infinity_pictures":"infinity_downloads",Context.MODE_PRIVATE);
-        String progress=downloads.getString("status","");
-        if(picturesProgress)progress=WorldStore.pictureStatus(progress);
-        if(OfflineDownloadService.isRunning()){
-            int total=downloads.getInt("total",0);
-            if(total>0)rounded(c,227,1015,1640f*downloads.getInt("done",0)/total,3,0,GOLD);
-        }else if(downloads.getBoolean("active",false)){
+        label(c,footer,230,1052,19,PALE,medium,false);
+        boolean pictureStatus=savingPictures||pictureStore!=null&&!downloading;
+        String progress=pictureStatus?pictureProgress:videoProgress;
+        if(downloading){
+            float fraction=pictureStatus?pictureFraction:videoFraction;
+            if(fraction>0)rounded(c,227,1015,1640f*fraction,3,0,GOLD);
+        }else if(pictureStatus?pictureInterrupted:videoInterrupted){
             progress="Download interrupted • resume when ready";
         }
-        String fitted=fit(progress,20,850);
-        label(c,fitted,1865-p.measureText(fitted),1051,20,GOLD,medium,false);
+        label(c,fit(progress,20,850),1865,1051,20,GOLD,medium,false,true);
     }
-    private String fit(String str,int textSize,int maxW){
-        p.setTypeface(medium);p.setTextSize(textSize);
-        if(p.measureText(str)<=maxW)return str;
-        while(str.length()>4&&p.measureText(str+"…")>maxW)str=str.substring(0,str.length()-1);
-        return str+"…";
+    private String fit(String value,int size,int width){
+        String key=size+":"+width+":"+value;
+        String result=fitted.get(key);
+        if(result==null){
+            textPaint.setTypeface(medium);
+            textPaint.setTextSize(size);
+            result=TextUtils.ellipsize(value,textPaint,width,TextUtils.TruncateAt.END).toString();
+            fitted.put(key,result);
+        }
+        return result;
     }
     private void pill(Canvas c,int x,int y,String t,int color){
         p.setTypeface(medium);p.setTextSize(19);
@@ -388,16 +561,20 @@ public final class CinematicView extends View {
         p.setTextAlign(Paint.Align.RIGHT);
         c.drawText(text,right,baseline,p);p.setTextAlign(Paint.Align.LEFT);
     }
-    private void image(Canvas c,Bitmap b,float x,float y,float w,float h,float r){
-        if(b==null||b.isRecycled())return;
-        float ratio=Math.max(w/b.getWidth(),h/b.getHeight());
-        int sw=Math.min(b.getWidth(),Math.round(w/ratio));
-        int sh=Math.min(b.getHeight(),Math.round(h/ratio));
-        Rect source=new Rect((b.getWidth()-sw)/2,(b.getHeight()-sh)/2,
-            (b.getWidth()+sw)/2,(b.getHeight()+sh)/2);
-        c.save();Path clip=new Path();clip.addRoundRect(x,y,x+w,y+h,r,r,Path.Direction.CW);
-        c.clipPath(clip);p.setColor(Color.WHITE);p.setShader(null);p.setAlpha(255);
-        c.drawBitmap(b,source,new RectF(x,y,x+w,y+h),p);c.restore();
+    private void image(Canvas canvas,Bitmap bitmap,float x,float y,float width,float height,float radius){
+        BitmapShader shader=shaders.get(bitmap);
+        if(shader==null){
+            shader=new BitmapShader(bitmap,Shader.TileMode.CLAMP,Shader.TileMode.CLAMP);
+            shaders.put(bitmap,shader);
+        }
+        float scale=Math.max(width/bitmap.getWidth(),height/bitmap.getHeight());
+        imageMatrix.setScale(scale,scale);
+        imageMatrix.postTranslate(x+(width-bitmap.getWidth()*scale)/2,y+(height-bitmap.getHeight()*scale)/2);
+        shader.setLocalMatrix(imageMatrix);
+        p.setColor(Color.WHITE);
+        p.setShader(shader);
+        canvas.drawRoundRect(x,y,x+width,y+height,radius,radius,p);
+        p.setShader(null);
     }
     @Override public boolean onKeyDown(int key,KeyEvent e){
         switch(key){
@@ -417,12 +594,14 @@ public final class CinematicView extends View {
                 if(focus==0)moveHeader(-1);
                 else if(focus==1)move(-1);
                 else buttonIndex=(buttonIndex+3)%4;
-                invalidate();return true;
+                if(!awaitingSelection)invalidate();
+                return true;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
                 if(focus==0)moveHeader(1);
                 else if(focus==1)move(1);
                 else buttonIndex=(buttonIndex+1)%4;
-                invalidate();return true;
+                if(!awaitingSelection)invalidate();
+                return true;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
@@ -500,7 +679,7 @@ public final class CinematicView extends View {
                 int target=(index/5)*5+(int)((x-228)/328);
                 if(target>=0&&target<visible.size()){
                     if(target==index&&focus==1)activate();
-                    else{index=target;focus=1;invalidate();actions.sceneChanged(selected());actions.categoryChanged(firstToResolve());}
+                    else{index=target;focus=1;selectionUpdated();actions.sceneChanged(selected());actions.categoryChanged(firstToResolve());}
                 }
                 return true;
             }
@@ -518,5 +697,14 @@ public final class CinematicView extends View {
         }
         return super.onGenericMotionEvent(event);
     }
-    void close(){posters.shutdown();}
+    void close(){
+        pauseUpdates();
+        closed=true;
+        removeCallbacks(updateScene);
+        removeCallbacks(reloadPictures);
+        models.shutdownNow();
+        packs.shutdownNow();
+        posters.shutdown();
+        shaders.evictAll();
+    }
 }

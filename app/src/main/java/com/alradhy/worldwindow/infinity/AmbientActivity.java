@@ -27,8 +27,10 @@ public final class AmbientActivity extends Activity {
         ambient.anchorScene=getIntent().getStringExtra(EXTRA_ANCHOR_SCENE);
         setContentView(ambient);
         ambient.requestFocus();
-        ambient.start();
     }
+
+    @Override protected void onStart(){super.onStart();ambient.start();}
+    @Override protected void onStop(){ambient.stop();super.onStop();}
 
     @Override public boolean onKeyDown(int key,KeyEvent event){
         switch(key){
