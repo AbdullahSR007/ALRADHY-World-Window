@@ -1,7 +1,6 @@
 package com.alradhy.worldwindow.infinity;
 
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
+import android.graphics.*;
 import android.media.ThumbnailUtils;
 import android.provider.MediaStore;
 import android.util.LruCache;
@@ -32,15 +31,46 @@ final class PosterLoader {
     }
 
     Bitmap peek(Scene scene,boolean offline,int width,int height,Runnable repaint){
+        return peek(scene,offline,width,height,false,repaint);
+    }
+
+    Bitmap peek(Scene scene,boolean offline,int width,int height,boolean compose,Runnable repaint){
         String localMedia=offline?scene.localMedia:"";
         String localPoster=scene.localPoster;
         String url=scene.posterUrl;
-        String key=scene.id+":"+localMedia+":"+localPoster+":"+url+":"+width;
-        return request(key,()->decode(scene,localMedia,localPoster,url,width,height),repaint);
+        String key=scene.id+":"+localMedia+":"+localPoster+":"+url+":"+width+":"+compose;
+        return request(key,()->{
+            Bitmap bitmap=decode(scene,localMedia,localPoster,url,width,height);
+            return bitmap==null||!compose?bitmap:decorate(bitmap,width==1120);
+        },repaint);
     }
 
     Bitmap peekPicture(File file,int width,int height,Runnable repaint){
         return request(file.getAbsolutePath()+":"+width,()->decodeFile(file,width,height),repaint);
+    }
+
+    private Bitmap decorate(Bitmap source,boolean hero){
+        int width=hero?1118:308,height=hero?558:205,radius=hero?25:15;
+        Bitmap result=Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888);
+        Canvas canvas=new Canvas(result);
+        Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
+        BitmapShader photo=new BitmapShader(source,Shader.TileMode.CLAMP,Shader.TileMode.CLAMP);
+        float scale=Math.max(width/(float)source.getWidth(),height/(float)source.getHeight());
+        Matrix crop=new Matrix();
+        crop.setScale(scale,scale);
+        crop.postTranslate((width-source.getWidth()*scale)/2f,(height-source.getHeight()*scale)/2f);
+        photo.setLocalMatrix(crop);
+        paint.setShader(photo);
+        canvas.drawRoundRect(0,0,width,height,radius,radius,paint);
+        paint.setShader(hero?new LinearGradient(0,243,0,573,0x00101b24,0xe908171f,Shader.TileMode.CLAMP):
+            new LinearGradient(0,80,0,205,0x00101920,0xee081821,Shader.TileMode.CLAMP));
+        canvas.drawRoundRect(0,0,width,height,radius,radius,paint);
+        if(hero){
+            paint.setShader(new LinearGradient(0,0,478,0,0x7704121a,0x00000000,Shader.TileMode.CLAMP));
+            canvas.drawRoundRect(0,0,width,height,radius,radius,paint);
+        }
+        source.recycle();
+        return result;
     }
 
     private Bitmap request(String key,Callable<Bitmap> decode,Runnable repaint){

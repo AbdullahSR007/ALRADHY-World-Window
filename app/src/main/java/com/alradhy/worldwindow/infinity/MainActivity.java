@@ -26,6 +26,7 @@ public final class MainActivity extends Activity implements CinematicView.Action
     private final Handler handler=new Handler(Looper.getMainLooper());
     private SharedPreferences videoProgress,pictureProgress;
     private boolean resumed,counting,countAgain;
+    private long lastExitBack;
     private final Runnable progressChanged=this::updateProgress;
     private final Runnable summaryChanged=this::countPictures;
     private final SharedPreferences.OnSharedPreferenceChangeListener progressListener=(prefs,key)->{
@@ -220,29 +221,82 @@ public final class MainActivity extends Activity implements CinematicView.Action
                 }catch(Exception error){message(error.getMessage());}
             }).show();
     }
-    @Override public void tools(Scene scene,GalleryStore.Photo photo){
-        ArrayList<String> labels=new ArrayList<>();ArrayList<Runnable> commands=new ArrayList<>();
-        if(scene!=null){
-            labels.add(world.favourite(scene)?"Remove destination from favourites":"♥ Favourite this destination");
-            commands.add(()->{world.toggle(scene);surface.restoreSelection(surface.selectedCategory(),scene.id);surface.invalidate();});
-            if(photo!=null){labels.add(world.photoFavourite(scene,photo.file)?"Remove photo from favourites":"♥ Favourite this picture");commands.add(()->{world.togglePhoto(scene,photo.file);message("Picture favourite updated");});}
-            if(world.isCustom(scene)){labels.add("حذف هذا المكان المضاف");commands.add(()->deletePlace(scene));}
-            labels.add("عن المكان • الوصف العربي ومواقيت الشمس");commands.add(()->about(scene));
-            labels.add("Slideshow: this destination only");commands.add(()->launchAmbient(scene,0));
-        }
-        labels.add("Downloads and storage");commands.add(this::downloadCenter);
-        labels.add("الاستكمال التلقائي عند تنزيل الكل: "+(world.prefs.getBoolean("auto_pictures",false)?"تشغيل":"إيقاف"));
-        commands.add(()->{boolean enabled=!world.prefs.getBoolean("auto_pictures",false);world.prefs.edit().putBoolean("auto_pictures",enabled).apply();message(enabled?"سيبحث تنزيل الكل عن صور إضافية للحزم الموجودة أيضًا":"تنزيل الكل سيحفظ الأماكن التي بلا صور فقط؛ يمكنك طلب المزيد يدويًا");});
-        if(getSharedPreferences("infinity_queue",MODE_PRIVATE).getBoolean("pending",false)){
-            labels.add("Resume last interrupted download");commands.add(()->{
-                if(OfflineDownloadService.isRunning()){message("A download is already running");return;}
-                requestNotices();startForegroundService(new Intent(this,OfflineDownloadService.class).setAction(OfflineDownloadService.RESUME));
+    @Override public void search(){
+        android.widget.EditText input=new android.widget.EditText(this);
+        input.setSingleLine(true);
+        input.setHint("Destination, country or category");
+        input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Search destinations")
+            .setView(input).setNegativeButton("Cancel",null)
+            .setPositiveButton("Search",(ignored,button)->showSearch(input.getText().toString())).create();
+        input.setOnEditorActionListener((view,action,event)->{
+            if(action!=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH)return false;
+            dialog.dismiss();
+            showSearch(input.getText().toString());
+            return true;
+        });
+        dialog.show();
+        input.requestFocus();
+        if(dialog.getWindow()!=null)dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+    }
+
+    private void showSearch(String entered){
+        String query=entered.trim().toLowerCase(Locale.ROOT);
+        if(query.isEmpty())return;
+        ActionPanel panel=new ActionPanel(this,"Search results");
+        for(Scene scene:library.scenes){
+            String searchable=String.join(" ",scene.title,scene.arabic,scene.category,
+                WorldStore.categoryName(scene.category),scene.subtitle,scene.search).toLowerCase(Locale.ROOT);
+            if(searchable.contains(query))panel.action(scene.title+"  "+scene.arabic,()->{
+                surface.restoreSelection("ALL",scene.id);
+                surface.focusSelection();
+                sceneChanged(scene);
             });
         }
-        labels.add("Slideshow settings");commands.add(this::slideshowSettings);
-        labels.add("Ambient mix");commands.add(this::ambientMix);
-        labels.add(world.prefs.getBoolean("refreshing",false)?world.prefs.getString("world_status","Saving place information…"):"حفظ / تحديث الأوصاف العربية لجميع الأماكن");commands.add(this::refreshWorld);
-        new AlertDialog.Builder(this).setTitle("INFINITY options").setItems(labels.toArray(new String[0]),(d,w)->commands.get(w).run()).setNegativeButton("Close",null).show();
+        panel.action("Add a place",this::addPlace);
+        panel.action("Search again",this::search);
+        panel.show();
+    }
+
+    @Override public void tools(Scene scene,GalleryStore.Photo photo){
+        ActionPanel panel=new ActionPanel(this,"INFINITY options");
+        if(scene!=null){
+            panel.section(scene.title);
+            panel.action(world.favourite(scene)?"Remove destination from favourites":"Favourite this destination",()->{
+                world.toggle(scene);
+                surface.restoreSelection(surface.selectedCategory(),scene.id);
+                surface.refreshScene();
+            });
+            if(photo!=null)panel.action(world.photoFavourite(scene,photo.file)?"Remove photo from favourites":"Favourite this picture",()->{
+                world.togglePhoto(scene,photo.file);
+                message("Picture favourite updated");
+            });
+            panel.action("عن المكان • الوصف العربي ومواقيت الشمس",()->about(scene));
+            panel.action("Slideshow: this destination only",()->launchAmbient(scene,0));
+            if(world.isCustom(scene))panel.action("حذف هذا المكان المضاف",()->deletePlace(scene));
+        }
+        panel.section("Downloads");
+        panel.action("Downloads and storage",this::downloadCenter);
+        panel.action("الاستكمال التلقائي عند تنزيل الكل: "+(world.prefs.getBoolean("auto_pictures",false)?"تشغيل":"إيقاف"),()->{
+            boolean enabled=!world.prefs.getBoolean("auto_pictures",false);
+            world.prefs.edit().putBoolean("auto_pictures",enabled).apply();
+            message(enabled?"سيبحث تنزيل الكل عن صور إضافية للحزم الموجودة أيضًا":"تنزيل الكل سيحفظ الأماكن التي بلا صور فقط؛ يمكنك طلب المزيد يدويًا");
+        });
+        if(getSharedPreferences("infinity_queue",MODE_PRIVATE).getBoolean("pending",false)){
+            panel.action("Resume last interrupted download",()->{
+                if(OfflineDownloadService.isRunning()){message("A download is already running");return;}
+                requestNotices();
+                startForegroundService(new Intent(this,OfflineDownloadService.class).setAction(OfflineDownloadService.RESUME));
+            });
+        }
+        panel.section("Ambient");
+        panel.action("Slideshow settings",this::slideshowSettings);
+        panel.action("Ambient mix",this::ambientMix);
+        panel.section("Library");
+        panel.action("Search destinations",this::search);
+        panel.action(world.prefs.getBoolean("refreshing",false)?world.prefs.getString("world_status","Saving place information…"):"حفظ / تحديث الأوصاف العربية لجميع الأماكن",this::refreshWorld);
+        panel.action("Close",()->{});
+        panel.show();
     }
     private void deletePlace(Scene scene){
         new AlertDialog.Builder(this).setTitle("حذف "+scene.title+"؟")
@@ -405,7 +459,14 @@ public final class MainActivity extends Activity implements CinematicView.Action
         }
         super.onPause();
     }
-    @Override public void onBackPressed(){if(!surface.closePictures())finish();}
+    @Override public void back(){onBackPressed();}
+    @Override public void onBackPressed(){
+        if(surface.closePictures()||surface.backToHeader()){lastExitBack=0;return;}
+        long now=SystemClock.uptimeMillis();
+        if(lastExitBack>0&&now-lastExitBack<2_500){finish();return;}
+        lastExitBack=now;
+        Toast.makeText(this,"Press BACK again to exit INFINITY",Toast.LENGTH_SHORT).show();
+    }
     @Override protected void onDestroy(){
         handler.removeCallbacksAndMessages(null);
         discovery.shutdownNow();

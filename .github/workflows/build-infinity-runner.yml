@@ -5,6 +5,7 @@ on:
     branches:
       - feature/infinity-v1-1-download-safety
       - feature/infinity-10010-performance-ux
+      - feature/infinity-10012-input
     paths:
       - '.github/workflows/build-infinity-runner.yml'
       - 'app/**'
@@ -20,7 +21,7 @@ env:
   # Certificate of the APK installed on the TV (builds 10001-10006). An APK signed with any
   # other key would force an uninstall and lose downloads, so it is never published.
   INFINITY_EXPECTED_CERT: f2d4cc3e847c93eca2f6024b30ca1acdde1c44a4bddcef78bf585e9c76afc5f8
-  INFINITY_INSTALLED_VERSION: ${{ github.ref_name == 'feature/infinity-v1-1-download-safety' && '10006' || '10009' }}
+  INFINITY_INSTALLED_VERSION: ${{ github.ref_name == 'feature/infinity-v1-1-download-safety' && '10006' || (github.ref_name == 'feature/infinity-10012-input' && '10011' || '10009') }}
 
 concurrency:
   group: infinity-self-hosted-debug

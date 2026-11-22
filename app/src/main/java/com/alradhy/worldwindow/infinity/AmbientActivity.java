@@ -13,6 +13,7 @@ public final class AmbientActivity extends Activity {
     static final String EXTRA_START="start";
     static final String EXTRA_ANCHOR_SCENE="anchor_scene";
     private AmbientView ambient;
+    private QuietPointer pointer;
     private float downX;
 
     @Override public void onCreate(Bundle state){
@@ -27,10 +28,12 @@ public final class AmbientActivity extends Activity {
         ambient.anchorScene=getIntent().getStringExtra(EXTRA_ANCHOR_SCENE);
         setContentView(ambient);
         ambient.requestFocus();
+        pointer=new QuietPointer(ambient);
+        pointer.reset();
     }
 
     @Override protected void onStart(){super.onStart();ambient.start();}
-    @Override protected void onStop(){ambient.stop();super.onStop();}
+    @Override protected void onStop(){pointer.reset();ambient.stop();super.onStop();}
 
     @Override public boolean onKeyDown(int key,KeyEvent event){
         switch(key){
@@ -62,6 +65,11 @@ public final class AmbientActivity extends Activity {
             return true;
         }
         return true;
+    }
+
+    @Override public boolean dispatchGenericMotionEvent(MotionEvent event){
+        pointer.motion(event);
+        return super.dispatchGenericMotionEvent(event);
     }
 
     @Override public boolean onGenericMotionEvent(MotionEvent event){

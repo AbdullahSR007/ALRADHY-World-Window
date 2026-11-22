@@ -1,6 +1,10 @@
 package com.alradhy.worldwindow.infinity;
 
+import android.animation.ValueAnimator;
 import android.content.Context;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
+import androidx.customview.widget.ExploreByTouchHelper;
 import android.content.SharedPreferences;
 import android.text.TextPaint;
 import android.text.TextUtils;
@@ -22,6 +26,8 @@ public final class CinematicView extends View {
         void play(Scene scene);
         void tools(Scene scene, GalleryStore.Photo photo);
         void addPlace();
+        void search();
+        void back();
         void download(Scene scene);
         void downloadAllOrPause();
         void downloadPictures(Scene scene);
@@ -40,16 +46,41 @@ public final class CinematicView extends View {
     private final PosterLoader posters;
     private final Actions actions;
     private final ArrayList<Scene> visible=new ArrayList<>();
-    private int categoryIndex=0,index=0,focus=1,buttonIndex=0;
+    private static final int HEADER=0,STRIP=1,BUTTONS=2,HERO=3,INFO=4;
+    private static final int HEADER_ID=10,HERO_ID=30,ACTION_ID=40,CARD_ID=100,PHOTO_ID=10000,FOOTER_ID=50;
+    private static final String[] HEADER_AR={
+        "الكل","المدن","الطبيعة","المحيطات","الفضاء","عالمي","العرض الهادئ","إضافة مكان","الخيارات"};
+    private static final String[] ACTION_AR={"استكشاف","الصور","إدارة النسخة المحفوظة","التنزيلات"};
+    private static final String[] GALLERY_AR={"العودة إلى الوجهات","عرض الصور","إدارة الصور","تنزيل الصور"};
+    private int categoryIndex=0,index=0,focus=STRIP,buttonIndex=0;
+    private int stripSlot;
+    private float stripOffset;
+    private ValueAnimator stripSlide;
+    private final List<HitRegion> regions=new ArrayList<>();
+    private final ExploreByTouchHelper accessibility;
+    private boolean accessibilityDirty=true;
+
+    private static final class HitRegion {
+        final int id,area,position;
+        final RectF bounds;
+        final String title;
+        HitRegion(int id,int area,int position,float x,float y,float width,float height,String title){
+            this.id=id;
+            this.area=area;
+            this.position=position;
+            this.bounds=new RectF(x,y,x+width,y+height);
+            this.title=title;
+        }
+    }
     private int photoIndex;
     private GalleryStore pictureStore;
     private List<GalleryStore.Photo> photos=Collections.emptyList();
-    private int hover=-1;
-    /** Header chips: the five categories, then AMBIENT. */
+    /** Category chips and the three header actions. */
     private int headerIndex=0;
     private static final int AMBIENT_CHIP=6, ADD_CHIP=7, TOOLS_CHIP=8, CHIP_X=700, CHIP_STEP=130, CHIP_W=122;
     private volatile GalleryStore.Summary pictures=GalleryStore.Summary.EMPTY;
     private float downX,downY;
+    private boolean suppressPointerClick;
     private final Typeface heading=Typeface.create("sans-serif-light",Typeface.NORMAL);
     private final Typeface medium=Typeface.create("sans-serif-medium",Typeface.NORMAL);
     private final DateTimeFormatter timeFormat=DateTimeFormatter.ofPattern("HH:mm",Locale.US);
@@ -183,6 +214,40 @@ public final class CinematicView extends View {
     public CinematicView(Context c,LibraryStore store,Actions listener){
         super(c);library=store;actions=listener;posters=new PosterLoader(store);world=new WorldStore(c);
         visible.addAll(store.scenes);
+        accessibility=new ExploreByTouchHelper(this){
+            @Override protected int getVirtualViewAt(float x,float y){
+                HitRegion hit=hitAt(x,y);
+                return hit==null?INVALID_ID:hit.id;
+            }
+            @Override protected void getVisibleVirtualViews(List<Integer> ids){
+                for(HitRegion hit:regions)ids.add(hit.id);
+            }
+            @Override protected void onPopulateNodeForVirtualView(int id,AccessibilityNodeInfoCompat node){
+                HitRegion hit=region(id);
+                if(hit==null){
+                    node.setContentDescription("Unavailable");
+                    node.setBoundsInParent(new Rect(0,0,1,1));
+                    node.setVisibleToUser(false);
+                    return;
+                }
+                node.setContentDescription(hit.title);
+                node.setBoundsInParent(new Rect((int)(hit.bounds.left*getWidth()/1920),
+                    (int)(hit.bounds.top*getHeight()/1080),(int)(hit.bounds.right*getWidth()/1920),
+                    (int)(hit.bounds.bottom*getHeight()/1080)));
+                node.setClassName(hit.area==INFO?"android.widget.TextView":"android.widget.Button");
+                node.setSelected(isFocused(hit));
+                node.setClickable(hit.area!=INFO);
+                if(hit.area!=INFO)node.addAction(AccessibilityNodeInfoCompat.ACTION_CLICK);
+            }
+            @Override protected boolean onPerformActionForVirtualView(int id,int action,android.os.Bundle args){
+                HitRegion hit=region(id);
+                if(hit==null||hit.area==INFO||action!=AccessibilityNodeInfoCompat.ACTION_CLICK)return false;
+                focusRegion(hit);
+                activate();
+                return true;
+            }
+        };
+        ViewCompat.setAccessibilityDelegate(this,accessibility);
         setFocusable(true);setFocusableInTouchMode(true);
     }
     public Scene selected(){return visible.isEmpty()?null:visible.get(Math.max(0,Math.min(index,visible.size()-1)));}
@@ -190,15 +255,17 @@ public final class CinematicView extends View {
     void setSummary(GalleryStore.Summary summary,String status){
         pictures=summary;
         footer=status;
+        accessibilityDirty=true;
         invalidate();
     }
     private void selectionUpdated(){
         positionLabel=String.format(Locale.US,"%02d  /  %02d",index+1,visible.size());
+        stripSlot=index%5;
+        accessibilityDirty=true;
         awaitingSelection=active;
         refreshScene();
         if(!active)invalidate();
     }
-    private int chipAt(float x){return Math.max(0,Math.min(TOOLS_CHIP,(int)((x-CHIP_X)/CHIP_STEP)));}
     void restoreSelection(String category,String sceneId){
         int savedCategory=Arrays.asList(SceneCatalog.CATEGORIES).indexOf(category);
         if(savedCategory<0)return;
@@ -228,23 +295,53 @@ public final class CinematicView extends View {
         headerIndex=category;
         visible.clear();visible.addAll(library.category(SceneCatalog.CATEGORIES[categoryIndex]));
         index=0;
+        finishStripSlide();
     }
     private void move(int d){
+        int size=pictureStore==null?visible.size():photos.size();
+        if(size==0)return;
+        int current=pictureStore==null?index:photoIndex;
+        setCard(Math.floorMod(current+d,size),true);
+    }
+    private void setCard(int target,boolean animate){
+        int previous=pictureStore==null?index:photoIndex;
+        if(previous==target)return;
+        stripSlot=target%5;
+        if(animate&&previous/5!=target/5)animateStrip(target>previous?1:-1);
         if(pictureStore!=null){
-            if(!photos.isEmpty())photoIndex=Math.floorMod(photoIndex+d,photos.size());
+            photoIndex=target;
+            accessibilityDirty=true;
             invalidate();
             return;
         }
-        if(visible.isEmpty())return;
-        index=(index+d+visible.size())%visible.size();
-        selectionUpdated();actions.categoryChanged(firstToResolve());
-        Scene s=selected();if(s!=null)actions.sceneChanged(s);
+        index=target;
+        selectionUpdated();
+        actions.categoryChanged(firstToResolve());
+        Scene scene=selected();
+        if(scene!=null)actions.sceneChanged(scene);
+    }
+    private void animateStrip(int direction){
+        finishStripSlide();
+        stripSlide=ValueAnimator.ofFloat(direction*84f,0f);
+        stripSlide.setDuration(150);
+        stripSlide.setInterpolator(new android.view.animation.DecelerateInterpolator());
+        stripSlide.addUpdateListener(animator->{
+            stripOffset=(float)animator.getAnimatedValue();
+            invalidate();
+        });
+        stripSlide.start();
+    }
+    private void finishStripSlide(){
+        if(stripSlide!=null){stripSlide.cancel();stripSlide=null;}
+        stripOffset=0;
     }
     private void showPictures(Scene scene){
         pictureStore=new GalleryStore(getContext(),scene);
         pictureSceneId=scene.id;
         photoIndex=0;
         pictureOpening=true;
+        stripSlot=0;
+        accessibilityDirty=true;
         refreshPictures();
         invalidate();
     }
@@ -255,7 +352,10 @@ public final class CinematicView extends View {
         pictureOpening=false;
         pictureRequest++;
         photos=Collections.emptyList();
-        focus=1;
+        focus=STRIP;
+        stripSlot=index%5;
+        finishStripSlide();
+        accessibilityDirty=true;
         invalidate();
         return true;
     }
@@ -278,10 +378,11 @@ public final class CinematicView extends View {
             post(()->{
                 if(closed||pictureStore!=store||pictureRequest!=request)return;
                 photos=saved;
+                accessibilityDirty=true;
                 photoIndex=Math.max(0,Math.min(photoIndex,photos.size()-1));
                 if(pictureOpening){
                     pictureOpening=false;
-                    focus=photos.isEmpty()?2:1;
+                    focus=photos.isEmpty()?BUTTONS:STRIP;
                     buttonIndex=photos.isEmpty()?2:1;
                 }
                 invalidate();
@@ -301,6 +402,7 @@ public final class CinematicView extends View {
         super.onDraw(raw);
         float sx=getWidth()/1920f,sy=getHeight()/1080f;
         raw.save();raw.scale(sx,sy);
+        regions.clear();
         if(background!=null){p.setColor(Color.WHITE);p.setShader(null);raw.drawBitmap(background,null,backgroundBounds,p);}
         drawRail(raw);
         drawHeader(raw);
@@ -314,6 +416,10 @@ public final class CinematicView extends View {
         else drawStrip(raw);
         drawFooter(raw);
         raw.restore();
+        if(accessibilityDirty){
+            accessibilityDirty=false;
+            accessibility.invalidateRoot();
+        }
     }
     private void paintBackground(Canvas c){
         p.setShader(new LinearGradient(0,0,1900,1080,new int[]{0xff06111a,0xff0a2733,0xff09121b},null,Shader.TileMode.CLAMP));
@@ -335,13 +441,6 @@ public final class CinematicView extends View {
         inf.cubicTo(54,51,67,63,75,83);inf.cubicTo(84,105,101,104,104,83);
         inf.cubicTo(99,61,86,64,75,83);inf.cubicTo(59,106,48,101,46,83);
         c.drawPath(inf,p);p.setStyle(Paint.Style.FILL);
-        String[] marks={"⌂","◉","△","≈","✧"};
-        for(int i=0;i<5;i++){
-            int y=282+i*126;
-            if(i==categoryIndex)rounded(c,13,y-50,124,102,17,0x333abaad);
-            label(c,marks[i],75,y+14,55,i==categoryIndex?GOLD:0xff6e919a,medium,true);
-            if(i==categoryIndex)rounded(c,147,y-34,5,67,2,GOLD);
-        }
         label(c,"INFINITY",76,1012,17,0xff8da4a9,medium,true);
     }
     private void drawHeader(Canvas c){
@@ -353,30 +452,30 @@ public final class CinematicView extends View {
             int x=CHIP_X+i*CHIP_STEP;
             boolean ambientChip=i==AMBIENT_CHIP;
             boolean current=i<SceneCatalog.CATEGORIES.length && i==categoryIndex;
-            boolean focused=focus==0 && headerIndex==i;
+            boolean focused=focus==HEADER && headerIndex==i;
             rounded(c,x,57,CHIP_W,57,16,ambientChip?0x66a87b42:current?0x668db3af:0x55203843);
             if(focused)outline(c,x-3,54,CHIP_W+6,63,18,GOLD,3.5f);
-            else if(current||hover==i)outline(c,x,57,CHIP_W,57,16,current?GOLD:0xff6b9da7,2);
-            label(c,ambientChip?"AMBIENT":i==ADD_CHIP?"+ PLACE":i==TOOLS_CHIP?"OPTIONS":SceneCatalog.CATEGORIES[i],x+CHIP_W/2f,94,18,
-                current||ambientChip?CREAM:PALE,medium,true);
+            else if(current)outline(c,x,57,CHIP_W,57,16,GOLD,2);
+            String title=ambientChip?"AMBIENT":i==ADD_CHIP?"+ PLACE":i==TOOLS_CHIP?"OPTIONS":SceneCatalog.CATEGORIES[i];
+            label(c,title,x+CHIP_W/2f,94,18,current||ambientChip?CREAM:PALE,medium,true);
+            hit(HEADER_ID+i,HEADER,i,x,57,CHIP_W,57,title+" / "+HEADER_AR[i]);
         }
         rounded(c,224,132,1650,1,0,0x66789598);
     }
     private void drawHero(Canvas c,Scene s){
-        rounded(c,222,157,1118,558,25,0xff0b303f);
         MediaStatus media=mediaStates.get(s.id);
-        Bitmap bitmap=posters.peek(s,media!=null&&media.offline,1120,560,posterReady);
-        if(bitmap!=null)image(c,bitmap,222,157,1118,558,25);
+        Bitmap bitmap=posters.peek(s,media!=null&&media.offline,1120,560,true,posterReady);
+        if(bitmap!=null)tile(c,bitmap,222,157,1118,558);
         else {
             p.setShader(HERO_EMPTY);
             c.drawRoundRect(222,157,1340,715,25,25,p);p.setShader(null);
             drawGlobe(c,840,410);
+            p.setShader(HERO_BOTTOM);
+            c.drawRoundRect(222,157,1340,715,25,25,p);
+            p.setShader(HERO_LEFT);
+            c.drawRoundRect(222,157,1340,715,25,25,p);
+            p.setShader(null);
         }
-        // Overlay: text stays readable regardless of photographic highlights.
-        p.setShader(HERO_BOTTOM);
-        c.drawRoundRect(222,157,1340,715,25,25,p);p.setShader(null);
-        p.setShader(HERO_LEFT);
-        c.drawRoundRect(222,157,1340,715,25,25,p);p.setShader(null);
         boolean offline=media!=null&&media.offline;
         pill(c,255,194,offline?"● OFFLINE COLLECTION":s.mime.startsWith("video/")?"▶ CINEMATIC FOOTAGE":"◈ WORLD GALLERY",
              offline?0xff408e81:0xaa162e3b);
@@ -384,7 +483,8 @@ public final class CinematicView extends View {
         label(c,title,269,567,Math.min(76,title.length()>20?62:76),CREAM,heading,false);
         label(c,s.arabic,274,628,37,0xffe9c891,medium,false);
         label(c,WorldStore.categoryName(s.category),275,676,25,0xffd5e5e5,heading,false);
-        outline(c,222,157,1118,558,25,0x44d2a66b,1.8f);
+        outline(c,222,157,1118,558,25,focus==HERO?GOLD:0x44d2a66b,focus==HERO?4f:1.8f);
+        hit(HERO_ID,HERO,0,222,157,1118,558,s.title+" / "+s.arabic+" · Explore / استكشاف");
     }
     private void drawGlobe(Canvas c,float cx,float cy){
         p.setColor(0x1148b4ca);c.drawCircle(cx,cy,240,p);
@@ -411,7 +511,8 @@ public final class CinematicView extends View {
             String credit=photo.credit.isEmpty()?photo.provider:photo.credit+" • "+photo.provider;
             label(c,fit(credit+" • "+photo.license,18,1035),253,686,18,PALE,medium,false);
         }
-        outline(c,222,157,1118,558,25,0x44d2a66b,1.8f);
+        outline(c,222,157,1118,558,25,focus==HERO?GOLD:0x44d2a66b,focus==HERO?4f:1.8f);
+        if(!photos.isEmpty())hit(HERO_ID,HERO,0,222,157,1118,558,scene.title+" · Slideshow / عرض الصور");
     }
     private void drawPictureControls(Canvas c,Scene scene){
         rounded(c,1360,157,516,558,26,0xdd102b35);
@@ -432,15 +533,19 @@ public final class CinematicView extends View {
         if(photos.isEmpty())return;
         label(c,"OK  FULL SCREEN     "+(photoIndex+1)+" / "+photos.size()+"     ◀  ▶",1865,757,21,PALE,medium,false,true);
         int start=photoIndex/5*5;
+        c.save();
+        c.clipRect(221,780,1865,1002);
         for(int i=0;i<5 && start+i<photos.size();i++){
             int j=start+i;
             GalleryStore.Photo photo=photos.get(j);
-            int x=228+i*328;
+            int x=228+i*328+Math.round(stripOffset);
             rounded(c,x,789,308,205,15,0xff183744);
             Bitmap bitmap=posters.peekPicture(pictureStore.file(photo),320,213,posterReady);
             if(bitmap!=null)image(c,bitmap,x,789,308,205,15);
-            if(j==photoIndex)outline(c,x-3,786,314,211,17,GOLD,focus==1?4.3f:2.5f);
+            if(j==photoIndex)outline(c,x-3,786,314,211,17,GOLD,focus==STRIP?4.3f:2.5f);
+            hit(PHOTO_ID+j,STRIP,j,x,789,308,205,"Photo "+(j+1)+" / صورة "+(j+1));
         }
+        c.restore();
     }
     private void drawDetails(Canvas c,Scene s){
         rounded(c,1360,157,516,558,26,0xdd102b35);
@@ -466,28 +571,31 @@ public final class CinematicView extends View {
     private void action(Canvas c,int n,int x,int y,String name,boolean warm){
         int fill=warm?0xffa87b42:0xff254a58;
         rounded(c,x,y,429,57,14,fill);
-        if(focus==2&&buttonIndex==n)outline(c,x-3,y-3,435,63,15,GOLD,4);
+        if(focus==BUTTONS&&buttonIndex==n)outline(c,x-3,y-3,435,63,15,GOLD,4);
         label(c,name,x+25,y+37,23,warm?0xff0c1a1f:CREAM,medium,false);
+        hit(ACTION_ID+n,BUTTONS,n,x,y,429,57,name+" / "+(pictureStore==null?ACTION_AR[n]:GALLERY_AR[n]));
     }
     private void drawStrip(Canvas c){
         label(c,"EXPLORE THE COLLECTION",229,759,26,GOLD,medium,false);
-        label(c,"◀  DPAD / MOUSE / SWIPE  ▶",1565,757,18,PALE,medium,false);
-        int start=(index/5)*5;
+        int page=index/5;
+        if(!visible.isEmpty())label(c,"PAGE "+(page+1)+" / "+((visible.size()+4)/5),1865,757,20,PALE,medium,false,true);
+        int start=page*5;
+        c.save();
+        c.clipRect(221,780,1865,1002);
         for(int i=0;i<5;i++){
             int j=start+i;if(j>=visible.size())break;
             Scene s=visible.get(j);
-            int x=228+i*328,y=789;
-            rounded(c,x,y,308,205,15,0xff183744);
+            int x=228+i*328+Math.round(stripOffset),y=789;
             MediaStatus media=mediaStates.get(s.id);
             boolean offline=media!=null&&media.offline;
-            Bitmap bmp=posters.peek(s,offline,320,213,posterReady);
-            if(bmp!=null)image(c,bmp,x,y,308,205,15);
+            Bitmap bmp=posters.peek(s,offline,320,213,true,posterReady);
+            if(bmp!=null)tile(c,bmp,x,y,308,205);
             else{
                 cardShade(c,CARD_EMPTY,x,y);
                 p.setStyle(Paint.Style.STROKE);p.setColor(0x447ed4d8);p.setStrokeWidth(2);
                 c.drawCircle(x+154,y+80,46,p);p.setStyle(Paint.Style.FILL);
+                cardShade(c,CARD_BOTTOM,x,y);
             }
-            cardShade(c,CARD_BOTTOM,x,y);
             label(c,fit(s.title,29,280),x+16,y+165,29,CREAM,medium,false);
             label(c,media!=null&&media.photo?"● PHOTO SAVED":offline?"● SAVED":s.mime.startsWith("video/")?"▶ VIDEO":"◇ "+s.category,
                 x+17,y+188,15,offline?0xff8edac5:GOLD,medium,false);
@@ -500,8 +608,10 @@ public final class CinematicView extends View {
                 label(c,badge,x+308-bw-10+11,y+31,16,CREAM,medium,false);
             }
             if(j==index)outline(c,x-3,y-3,314,211,17,
-                focus==1?GOLD:0xffa5bebb,focus==1?4.3f:2.5f);
+                focus==STRIP?GOLD:0xffa5bebb,focus==STRIP?4.3f:2.5f);
+            hit(CARD_ID+j,STRIP,j,x,y,308,205,s.title+" / "+s.arabic);
         }
+        c.restore();
     }
     private void cardShade(Canvas c,Shader shade,int x,int y){
         c.save();
@@ -514,6 +624,7 @@ public final class CinematicView extends View {
     private void drawFooter(Canvas c){
         rounded(c,227,1015,1640,2,0,0x665c878a);
         label(c,footer,230,1052,19,PALE,medium,false);
+        if(!footer.isEmpty())hit(FOOTER_ID,INFO,0,230,1024,800,33,footer);
         boolean pictureStatus=savingPictures||pictureStore!=null&&!downloading;
         String progress=pictureStatus?pictureProgress:videoProgress;
         if(downloading){
@@ -561,6 +672,13 @@ public final class CinematicView extends View {
         p.setTextAlign(Paint.Align.RIGHT);
         c.drawText(text,right,baseline,p);p.setTextAlign(Paint.Align.LEFT);
     }
+    private final RectF tileBounds=new RectF();
+    private void tile(Canvas canvas,Bitmap bitmap,int x,int y,int width,int height){
+        tileBounds.set(x,y,x+width,y+height);
+        p.setColor(Color.WHITE);
+        p.setShader(null);
+        canvas.drawBitmap(bitmap,null,tileBounds,p);
+    }
     private void image(Canvas canvas,Bitmap bitmap,float x,float y,float width,float height,float radius){
         BitmapShader shader=shaders.get(bitmap);
         if(shader==null){
@@ -576,129 +694,250 @@ public final class CinematicView extends View {
         canvas.drawRoundRect(x,y,x+width,y+height,radius,radius,p);
         p.setShader(null);
     }
-    @Override public boolean onKeyDown(int key,KeyEvent e){
+    private void hit(int id,int area,int position,float x,float y,float width,float height,String title){
+        HitRegion region=new HitRegion(id,area,position,x,y,width,height,title);
+        if(area!=STRIP||region.bounds.intersect(221,780,1865,1002))regions.add(region);
+    }
+
+    private HitRegion hitAt(float x,float y){
+        if(getWidth()==0||getHeight()==0)return null;
+        float localX=x*1920/getWidth(),localY=y*1080/getHeight();
+        for(HitRegion region:regions)if(region.bounds.contains(localX,localY))return region;
+        return null;
+    }
+
+    private HitRegion region(int id){
+        for(HitRegion hit:regions)if(hit.id==id)return hit;
+        return null;
+    }
+
+    private boolean isFocused(HitRegion hit){
+        if(focus!=hit.area)return false;
+        if(focus==HEADER)return headerIndex==hit.position;
+        if(focus==BUTTONS)return buttonIndex==hit.position;
+        if(focus==STRIP)return (pictureStore==null?index:photoIndex)==hit.position;
+        return focus==HERO;
+    }
+
+    private void focusRegion(HitRegion region){
+        if(isFocused(region)||region.area==INFO)return;
+        if(region.area==HEADER)headerIndex=region.position;
+        else if(region.area==BUTTONS)buttonIndex=region.position;
+        else if(region.area==STRIP)setCard(region.position,false);
+        setFocusArea(region.area);
+    }
+
+    private void setFocusArea(int area){
+        focus=area;
+        accessibilityDirty=true;
+        if(!awaitingSelection)invalidate();
+    }
+
+    private int headerNearest(int x){
+        return Math.max(0,Math.min(TOOLS_CHIP,Math.round((x-CHIP_X-CHIP_W/2f)/CHIP_STEP)));
+    }
+
+    private void focusHeader(int x){
+        headerIndex=headerNearest(x);
+        setFocusArea(HEADER);
+    }
+
+    void focusSelection(){setFocusArea(STRIP);}
+
+    boolean backToHeader(){
+        if(focus==HEADER)return false;
+        headerIndex=categoryIndex;
+        setFocusArea(HEADER);
+        return true;
+    }
+
+    private void spatial(int key,int repeat){
+        if(key==KeyEvent.KEYCODE_DPAD_LEFT||key==KeyEvent.KEYCODE_DPAD_RIGHT){
+            int step=key==KeyEvent.KEYCODE_DPAD_LEFT?-1:1;
+            if(focus==HEADER){
+                headerIndex=Math.floorMod(headerIndex+step,TOOLS_CHIP+1);
+                setFocusArea(HEADER);
+            }else if(focus==STRIP)move(repeat>=5?step*5:step);
+            else if(focus==HERO&&step>0)setFocusArea(BUTTONS);
+            else if(focus==BUTTONS&&step<0&&selected()!=null)setFocusArea(HERO);
+            return;
+        }
+        if(key==KeyEvent.KEYCODE_DPAD_UP){
+            if(focus==HEADER)return;
+            if(selected()==null){focusHeader(CHIP_X+categoryIndex*CHIP_STEP+CHIP_W/2);return;}
+            if(focus==HERO){focusHeader(780);return;}
+            if(focus==BUTTONS){
+                if(buttonIndex==0)focusHeader(1600);
+                else {buttonIndex--;setFocusArea(BUTTONS);}
+                return;
+            }
+            if(stripSlot>=4||pictureStore!=null&&photos.isEmpty()){
+                buttonIndex=3;
+                setFocusArea(BUTTONS);
+            }else setFocusArea(HERO);
+            return;
+        }
+        if(focus==HEADER&&selected()!=null){
+            if(CHIP_X+CHIP_STEP*headerIndex>1340){
+                buttonIndex=0;
+                setFocusArea(BUTTONS);
+            }else setFocusArea(HERO);
+        }else if(focus==BUTTONS&&buttonIndex<3){
+            buttonIndex++;
+            setFocusArea(BUTTONS);
+        }else setFocusArea(STRIP);
+    }
+
+    @Override public boolean onKeyDown(int key,KeyEvent event){
+        if(key>=KeyEvent.KEYCODE_1&&key<=KeyEvent.KEYCODE_6){
+            selectCategory(key-KeyEvent.KEYCODE_1);
+            setFocusArea(STRIP);
+            return true;
+        }
         switch(key){
-            case KeyEvent.KEYCODE_MENU:
-                actions.tools(selected(),pictureStore!=null&&!photos.isEmpty()?photos.get(photoIndex):null);return true;
+            case KeyEvent.KEYCODE_MENU:openOptions();return true;
+            case KeyEvent.KEYCODE_SEARCH:actions.search();return true;
+            case KeyEvent.KEYCODE_CHANNEL_UP:
+            case KeyEvent.KEYCODE_PAGE_UP:
+                setFocusArea(STRIP);move(-5);return true;
+            case KeyEvent.KEYCODE_CHANNEL_DOWN:
+            case KeyEvent.KEYCODE_PAGE_DOWN:
+                setFocusArea(STRIP);move(5);return true;
             case KeyEvent.KEYCODE_DPAD_UP:
-                if(focus==2&&buttonIndex>0){buttonIndex--;invalidate();return true;}
-                if(focus==1)headerIndex=categoryIndex;
-                focus=Math.max(0,focus-1);invalidate();return true;
             case KeyEvent.KEYCODE_DPAD_DOWN:
-                if(focus>=1){
-                    buttonIndex=focus==1?0:Math.min(3,buttonIndex+1);
-                    focus=2;invalidate();return true;
-                }
-                focus=Math.min(2,focus+1);invalidate();return true;
             case KeyEvent.KEYCODE_DPAD_LEFT:
-                if(focus==0)moveHeader(-1);
-                else if(focus==1)move(-1);
-                else buttonIndex=(buttonIndex+3)%4;
-                if(!awaitingSelection)invalidate();
-                return true;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
-                if(focus==0)moveHeader(1);
-                else if(focus==1)move(1);
-                else buttonIndex=(buttonIndex+1)%4;
-                if(!awaitingSelection)invalidate();
-                return true;
+                spatial(key,event.getRepeatCount());return true;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
-                activate();return true;
+                if(event.getRepeatCount()==0)activate();
+                return true;
             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
                 if(pictureStore!=null)move(1);
                 else if(selected()!=null)actions.play(selected());
                 return true;
-            default:return super.onKeyDown(key,e);
+            default:return super.onKeyDown(key,event);
         }
     }
-    /** LEFT/RIGHT on the header switches category at once; AMBIENT waits for OK. */
-    private void moveHeader(int d){
-        headerIndex=Math.floorMod(headerIndex+d,TOOLS_CHIP+1);
-        if(headerIndex<AMBIENT_CHIP)selectCategory(headerIndex);
-        invalidate();
+
+    private void openOptions(){
+        actions.tools(selected(),pictureStore!=null&&!photos.isEmpty()?photos.get(photoIndex):null);
     }
+
     private void activate(){
-        if(focus==0){
+        if(focus==HEADER){
             if(headerIndex==AMBIENT_CHIP){actions.ambient(null,0);return;}
             if(headerIndex==ADD_CHIP){actions.addPlace();return;}
-            if(headerIndex==TOOLS_CHIP){actions.tools(selected(),pictureStore!=null&&!photos.isEmpty()?photos.get(photoIndex):null);return;}
-            selectCategory(categoryIndex);focus=1;return;
-        }
-        Scene s=selected();if(s==null)return;
-        if(pictureStore!=null){
-            if(focus==1){actions.ambient(s,photoIndex);}
-            else if(buttonIndex==1){actions.ambient(null,0);}
-            else if(buttonIndex==0)closePictures();
-            else if(buttonIndex==2){
-                if(!photos.isEmpty())actions.removePictures(s);
-                else actions.downloadPictures(s);
-            }
-            else if(buttonIndex==3)actions.downloadPictures(null);
+            if(headerIndex==TOOLS_CHIP){openOptions();return;}
+            selectCategory(headerIndex);
+            setFocusArea(STRIP);
             return;
         }
-        if(focus==1 || buttonIndex==0)actions.play(s);
-        else if(buttonIndex==1)showPictures(s);
-        else if(buttonIndex==2)actions.download(s);
+        Scene scene=selected();
+        if(scene==null)return;
+        boolean primary=focus==STRIP||focus==HERO;
+        if(pictureStore!=null){
+            if(primary){if(!photos.isEmpty())actions.ambient(scene,photoIndex);}
+            else if(buttonIndex==0)closePictures();
+            else if(buttonIndex==1)actions.ambient(null,0);
+            else if(buttonIndex==2){
+                if(photos.isEmpty())actions.downloadPictures(scene);
+                else actions.removePictures(scene);
+            }else if(buttonIndex==3)actions.downloadPictures(null);
+            return;
+        }
+        if(primary||buttonIndex==0)actions.play(scene);
+        else if(buttonIndex==1)showPictures(scene);
+        else if(buttonIndex==2)actions.download(scene);
         else actions.downloadAllOrPause();
     }
-    @Override public boolean onHoverEvent(MotionEvent e){
-        if(e.getAction()==MotionEvent.ACTION_HOVER_MOVE){
-            float x=e.getX()*1920/getWidth(),y=e.getY()*1080/getHeight();
-            if(y>57&&y<114&&x>CHIP_X){
-                hover=chipAt(x);
-            }else hover=-1;
-            invalidate();return true;
-        }
-        return super.onHoverEvent(e);
+
+    @Override public boolean dispatchHoverEvent(MotionEvent event){
+        return accessibility.dispatchHoverEvent(event)||super.dispatchHoverEvent(event);
     }
-    @Override public boolean onTouchEvent(MotionEvent e){
-        float x=e.getX()*1920/getWidth(),y=e.getY()*1080/getHeight();
-        if(e.getAction()==MotionEvent.ACTION_DOWN){downX=x;downY=y;return true;}
-        if(e.getAction()==MotionEvent.ACTION_UP){
-            if(Math.abs(x-downX)>75){focus=1;move(x<downX?1:-1);return true;}
-            if(y>=57&&y<=114&&x>=CHIP_X){
-                int chip=chipAt(x);
-                focus=0;headerIndex=chip;
-                if(chip==AMBIENT_CHIP)actions.ambient(null,0);
-                else if(chip==ADD_CHIP)actions.addPlace();
-                else if(chip==TOOLS_CHIP)actions.tools(selected(),pictureStore!=null&&!photos.isEmpty()?photos.get(photoIndex):null);
-                else selectCategory(chip);
-                invalidate();return true;
-            }
-            if(y>=789&&y<=994&&x>=228){
-                if(pictureStore!=null){
-                    int target=photoIndex/5*5+(int)((x-228)/328);
-                    if(target<photos.size()){
-                        if(target==photoIndex&&focus==1)actions.ambient(selected(),photoIndex);
-                        else{photoIndex=target;focus=1;invalidate();}
-                    }
-                    return true;
-                }
-                int target=(index/5)*5+(int)((x-228)/328);
-                if(target>=0&&target<visible.size()){
-                    if(target==index&&focus==1)activate();
-                    else{index=target;focus=1;selectionUpdated();actions.sceneChanged(selected());actions.categoryChanged(firstToResolve());}
-                }
+
+    @Override public boolean onHoverEvent(MotionEvent event){
+        if(event.getActionMasked()==MotionEvent.ACTION_HOVER_MOVE||event.getActionMasked()==MotionEvent.ACTION_HOVER_ENTER){
+            HitRegion hit=hitAt(event.getX(),event.getY());
+            if(hit!=null)focusRegion(hit);
+            return true;
+        }
+        return super.onHoverEvent(event);
+    }
+
+    @Override public PointerIcon onResolvePointerIcon(MotionEvent event,int pointerIndex){
+        HitRegion hit=hitAt(event.getX(pointerIndex),event.getY(pointerIndex));
+        if(hit!=null&&hit.area!=INFO)return PointerIcon.getSystemIcon(getContext(),PointerIcon.TYPE_HAND);
+        return super.onResolvePointerIcon(event,pointerIndex);
+    }
+
+    @Override public boolean onTouchEvent(MotionEvent event){
+        if(event.getActionMasked()==MotionEvent.ACTION_DOWN){
+            int buttons=event.getButtonState();
+            suppressPointerClick=event.isFromSource(InputDevice.SOURCE_MOUSE)&&
+                (buttons&(MotionEvent.BUTTON_SECONDARY|MotionEvent.BUTTON_BACK))!=0;
+            downX=event.getX();
+            downY=event.getY();
+            return true;
+        }
+        if(event.getActionMasked()==MotionEvent.ACTION_UP){
+            if(suppressPointerClick){suppressPointerClick=false;return true;}
+            if(Math.abs(event.getX()-downX)>75*getWidth()/1920f){
+                setFocusArea(STRIP);
+                move(event.getX()<downX?1:-1);
                 return true;
             }
-            if(x>=1404&&x<=1833&&y>=430&&y<=682 && ((int)y-430)%65<57){
-                focus=2;buttonIndex=((int)y-430)/65;activate();invalidate();return true;
+            if(Math.abs(event.getY()-downY)>75*getHeight()/1080f)return true;
+            HitRegion hit=hitAt(event.getX(),event.getY());
+            if(hit!=null&&hit.area!=INFO){
+                boolean selected=isFocused(hit);
+                focusRegion(hit);
+                if(hit.area!=STRIP||selected||event.isFromSource(InputDevice.SOURCE_MOUSE))activate();
+                performClick();
             }
-            if(x>220&&x<1340&&y>157&&y<715){focus=1;activate();return true;}
         }
         return true;
     }
+
+    @Override public boolean performClick(){super.performClick();return true;}
+
     @Override public boolean onGenericMotionEvent(MotionEvent event){
-        if(event.getAction()==MotionEvent.ACTION_SCROLL){
-            float delta=event.getAxisValue(MotionEvent.AXIS_VSCROLL);
-            if(delta!=0){focus=1;move(delta>0?-1:1);return true;}
+        if(event.getActionMasked()==MotionEvent.ACTION_BUTTON_PRESS){
+            if(event.getActionButton()==MotionEvent.BUTTON_SECONDARY){
+                HitRegion target=hitAt(event.getX(),event.getY());
+                if(target!=null&&target.area==STRIP)focusRegion(target);
+                openOptions();
+                return true;
+            }
+            if(event.getActionButton()==MotionEvent.BUTTON_BACK){actions.back();return true;}
+        }
+        if(event.getActionMasked()==MotionEvent.ACTION_SCROLL){
+            float horizontal=event.getAxisValue(MotionEvent.AXIS_HSCROLL);
+            float vertical=event.getAxisValue(MotionEvent.AXIS_VSCROLL);
+            float delta=horizontal==0?vertical:horizontal;
+            if(delta==0)return true;
+            int direction=horizontal!=0?(horizontal>0?1:-1):(vertical>0?-1:1);
+            HitRegion target=hitAt(event.getX(),event.getY());
+            if(horizontal==0&&target!=null&&target.area==HEADER){
+                int chip=Math.floorMod(headerIndex+direction,SceneCatalog.CATEGORIES.length);
+                selectCategory(chip);
+                setFocusArea(HEADER);
+            }else if(horizontal==0&&target!=null&&target.area==BUTTONS){
+                buttonIndex=Math.max(0,Math.min(3,buttonIndex+direction));
+                setFocusArea(BUTTONS);
+            }else{
+                setFocusArea(STRIP);
+                move(direction);
+            }
+            return true;
         }
         return super.onGenericMotionEvent(event);
     }
+
     void close(){
         pauseUpdates();
+        finishStripSlide();
         closed=true;
         removeCallbacks(updateScene);
         removeCallbacks(reloadPictures);

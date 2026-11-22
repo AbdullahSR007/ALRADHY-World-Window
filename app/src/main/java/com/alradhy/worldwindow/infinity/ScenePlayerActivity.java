@@ -27,6 +27,7 @@ public final class ScenePlayerActivity extends Activity {
     private PosterLoader posters;
     private FrameLayout root;
     private PlayerView playerView;
+    private QuietPointer pointer;
     private ImageView photo;
     private TextView heading,subheading,credits,clock;
     private ExoPlayer player;
@@ -60,8 +61,19 @@ public final class ScenePlayerActivity extends Activity {
         root=new FrameLayout(this);root.setBackgroundColor(0xff050f18);
         photo=new ImageView(this);photo.setScaleType(ImageView.ScaleType.CENTER_CROP);
         root.addView(photo,new FrameLayout.LayoutParams(-1,-1));
-        playerView=new PlayerView(this);playerView.setFocusable(false);playerView.setFocusableInTouchMode(false);playerView.setUseController(true);
-        playerView.setControllerAutoShow(false);playerView.setControllerShowTimeoutMs(3500);
+        playerView=new PlayerView(this);
+        playerView.setFocusable(true);
+        playerView.setUseController(true);
+        playerView.setControllerAutoShow(false);
+        playerView.setControllerShowTimeoutMs(4500);
+        playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)visibility->{
+            boolean showing=visibility==View.VISIBLE;
+            playerView.setTranslationZ(showing?dp(1):0);
+            if(!showing)root.requestFocus();
+        });
+        View timeline=playerView.findViewById(androidx.media3.ui.R.id.exo_progress);
+        if(timeline instanceof androidx.media3.ui.DefaultTimeBar)
+            ((androidx.media3.ui.DefaultTimeBar)timeline).setKeyTimeIncrement(10_000);
         root.addView(playerView,new FrameLayout.LayoutParams(-1,-1));
         View shade=new View(this);
         shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
@@ -81,6 +93,8 @@ public final class ScenePlayerActivity extends Activity {
         clockP.setMargins(0,dp(36),dp(58),0);
         root.addView(clock,clockP);
         root.setFocusableInTouchMode(true);setContentView(root);root.requestFocus();
+        pointer=new QuietPointer(root);
+        pointer.reset();
     }
     private TextView text(int sp,int color,boolean strong){
         TextView t=new TextView(this);t.setTextColor(color);t.setTextSize(sp);
@@ -90,6 +104,7 @@ public final class ScenePlayerActivity extends Activity {
     private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+0.5f);}
     private void show(){
         main.removeCallbacks(nextPhoto);
+        playerView.hideController();
         releasePlayer();
         int run=++generation;
         Scene s=playlist.get(position);
@@ -97,7 +112,7 @@ public final class ScenePlayerActivity extends Activity {
         subheading.setText(WorldStore.categoryName(s.category)+"   •   "+s.status());
         String credit=s.hasOfflinePicture()?s.offlineCredit:s.credit;
         String license=s.hasOfflinePicture()?s.offlineLicense:s.license;
-        credits.setText("← / → NEXT SCENE       •       BACK TO COLLECTION       •       "+license+
+        credits.setText((s.isVideo()?"← / → SEEK 10s     •     CH +/− NEXT SCENE":"← / → NEXT SCENE")+"       •       BACK TO COLLECTION       •       "+license+
                 (credit.isEmpty()?"":"   |   "+credit));
         updateClock();
         photo.animate().cancel();photo.setScaleX(1);photo.setScaleY(1);
@@ -174,17 +189,80 @@ public final class ScenePlayerActivity extends Activity {
         if(playlist.isEmpty())return;
         position=(position+step+playlist.size())%playlist.size();show();
     }
-    @Override public boolean onKeyDown(int key,KeyEvent e){
-        if(key==KeyEvent.KEYCODE_DPAD_RIGHT){next(1);return true;}
-        if(key==KeyEvent.KEYCODE_DPAD_LEFT){next(-1);return true;}
-        if(key==KeyEvent.KEYCODE_DPAD_CENTER||key==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE){
-            if(player!=null){if(player.isPlaying())player.pause();else player.play();return true;}
-            next(1);return true;
+    private void showController(){
+        playerView.showController();
+        View timeline=playerView.findViewById(androidx.media3.ui.R.id.exo_progress);
+        if(timeline==null||!timeline.requestFocus())playerView.requestFocus();
+    }
+
+    private void seek(int seconds){
+        if(player==null||!player.isCurrentMediaItemSeekable())return;
+        long duration=player.getDuration();
+        long target=Math.max(0,player.getCurrentPosition()+seconds*1000L);
+        player.seekTo(duration>0?Math.min(duration,target):target);
+    }
+
+    @Override public boolean dispatchKeyEvent(KeyEvent event){
+        int key=event.getKeyCode();
+        if(key==KeyEvent.KEYCODE_CHANNEL_UP||key==KeyEvent.KEYCODE_PAGE_UP||key==KeyEvent.KEYCODE_MEDIA_PREVIOUS||
+            key==KeyEvent.KEYCODE_CHANNEL_DOWN||key==KeyEvent.KEYCODE_PAGE_DOWN||key==KeyEvent.KEYCODE_MEDIA_NEXT){
+            if(event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0)
+                next(key==KeyEvent.KEYCODE_CHANNEL_UP||key==KeyEvent.KEYCODE_PAGE_UP||key==KeyEvent.KEYCODE_MEDIA_PREVIOUS?-1:1);
+            return true;
         }
-        if(key==KeyEvent.KEYCODE_DPAD_UP&&playerView.getVisibility()==View.VISIBLE){
-            playerView.showController();return true;
+        if(player!=null){
+            if(key==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE||key==KeyEvent.KEYCODE_MEDIA_PLAY||key==KeyEvent.KEYCODE_MEDIA_PAUSE){
+                if(event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0){
+                    if(key==KeyEvent.KEYCODE_MEDIA_PAUSE||key==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE&&player.getPlayWhenReady())player.pause();
+                    else player.play();
+                }
+                return true;
+            }
+            if(!playerView.isControllerFullyVisible()){
+                if(key==KeyEvent.KEYCODE_DPAD_UP){
+                    if(event.getAction()==KeyEvent.ACTION_DOWN)showController();
+                    return true;
+                }
+                if(key==KeyEvent.KEYCODE_DPAD_LEFT||key==KeyEvent.KEYCODE_DPAD_RIGHT){
+                    if(event.getAction()==KeyEvent.ACTION_DOWN)seek(key==KeyEvent.KEYCODE_DPAD_LEFT?-10:10);
+                    return true;
+                }
+                if(key==KeyEvent.KEYCODE_DPAD_CENTER||key==KeyEvent.KEYCODE_ENTER){
+                    if(event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0){
+                        if(player.getPlayWhenReady())player.pause();else player.play();
+                        showController();
+                    }
+                    return true;
+                }
+            }else if(getCurrentFocus()!=null&&getCurrentFocus().getId()==androidx.media3.ui.R.id.exo_progress&&
+                (key==KeyEvent.KEYCODE_DPAD_LEFT||key==KeyEvent.KEYCODE_DPAD_RIGHT)){
+                if(event.getAction()==KeyEvent.ACTION_DOWN){
+                    seek(key==KeyEvent.KEYCODE_DPAD_LEFT?-10:10);
+                    playerView.showController();
+                }
+                return true;
+            }
         }
-        return super.onKeyDown(key,e);
+        return super.dispatchKeyEvent(event);
+    }
+
+    @Override public boolean onKeyDown(int key,KeyEvent event){
+        if(player==null){
+            if(key==KeyEvent.KEYCODE_DPAD_LEFT){next(-1);return true;}
+            if(key==KeyEvent.KEYCODE_DPAD_RIGHT||key==KeyEvent.KEYCODE_DPAD_CENTER||
+                key==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE){next(1);return true;}
+        }
+        return super.onKeyDown(key,event);
+    }
+
+    @Override public boolean dispatchGenericMotionEvent(MotionEvent event){
+        if(pointer!=null)pointer.motion(event);
+        return super.dispatchGenericMotionEvent(event);
+    }
+
+    @Override public boolean dispatchTouchEvent(MotionEvent event){
+        if(pointer!=null)pointer.motion(event);
+        return super.dispatchTouchEvent(event);
     }
     @Override public boolean onTouchEvent(android.view.MotionEvent e){
         if(e.getAction()==MotionEvent.ACTION_DOWN){touchDownX=e.getX();return true;}
@@ -192,12 +270,15 @@ public final class ScenePlayerActivity extends Activity {
             float shift=e.getX()-touchDownX;
             if(Math.abs(shift)>70)next(shift<0?1:-1);
             else if(player==null)next(1);
-            else playerView.showController();
+            else showController();
             return true;
         }
         return true;
     }
-    @Override public void onBackPressed(){finish();}
+    @Override public void onBackPressed(){
+        if(playerView.isControllerFullyVisible()){playerView.hideController();return;}
+        finish();
+    }
     private void releasePlayer(){
         if(player!=null){playerView.setPlayer(null);player.release();player=null;}
     }
@@ -205,6 +286,7 @@ public final class ScenePlayerActivity extends Activity {
     @Override protected void onPause(){
         main.removeCallbacks(tick);main.removeCallbacks(nextPhoto);
         if(player!=null)player.pause();
+        if(pointer!=null)pointer.reset();
         super.onPause();
     }
     @Override protected void onDestroy(){

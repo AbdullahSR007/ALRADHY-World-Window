@@ -40,6 +40,31 @@ public class WorldUpdateTest {
         assertTrue(GalleryStore.safeImageDimensions(1920,1080));
     }
 
+    @Test public void headerFocusWaitsForOkAndPageDownJumpsFiveCards(){
+        LibraryStore library=LibraryStore.shared(app);
+        for(Scene scene:library.scenes)scene.mediaUrl="https://example.invalid/test";
+        org.robolectric.android.controller.ActivityController<MainActivity> controller=
+            Robolectric.buildActivity(MainActivity.class).create();
+        try{
+            MainActivity activity=controller.get();
+            android.view.ViewGroup content=activity.findViewById(android.R.id.content);
+            CinematicView home=(CinematicView)content.getChildAt(0);
+            home.restoreSelection("ALL","C1");
+            press(home,android.view.KeyEvent.KEYCODE_DPAD_UP);
+            press(home,android.view.KeyEvent.KEYCODE_DPAD_UP);
+            press(home,android.view.KeyEvent.KEYCODE_DPAD_RIGHT);
+            assertEquals("ALL",home.selectedCategory());
+            press(home,android.view.KeyEvent.KEYCODE_DPAD_CENTER);
+            assertEquals("CITIES",home.selectedCategory());
+            press(home,android.view.KeyEvent.KEYCODE_PAGE_DOWN);
+            assertEquals("C6",home.selected().id);
+        }finally{controller.destroy();}
+    }
+
+    private void press(CinematicView view,int key){
+        assertTrue(view.onKeyDown(key,new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN,key)));
+    }
+
     @Test public void legacy100VideosAnd2000PicturesSurviveAddingPlaceAndReload()throws Exception{
         List<Scene> catalog=SceneCatalog.create();assertEquals(100,catalog.size());
         JSONObject legacy=new JSONObject();Map<File,byte[]> originals=new HashMap<>();
