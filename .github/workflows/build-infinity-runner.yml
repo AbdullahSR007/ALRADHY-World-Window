@@ -34,11 +34,13 @@ jobs:
     timeout-minutes: 50
     defaults:
       run:
+        working-directory: infinity-build
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
       - name: Checkout isolated INFINITY branch
         uses: actions/checkout@v4
         with:
+          path: infinity-build
           persist-credentials: false
 
       - name: Setup Java 17
@@ -159,7 +161,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: INFINITY-update-${{ steps.verify.outputs.code }}
-          path: ${{ steps.verify.outputs.file }}
+          path: infinity-build/${{ steps.verify.outputs.file }}
           if-no-files-found: error
           retention-days: 14
 
