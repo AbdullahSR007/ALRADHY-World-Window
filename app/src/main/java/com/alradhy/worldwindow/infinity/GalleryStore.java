@@ -307,9 +307,17 @@ final class GalleryStore {
         BitmapFactory.Options options=new BitmapFactory.Options();
         options.inJustDecodeBounds=true;
         BitmapFactory.decodeFile(file.getAbsolutePath(),options);
+        if(!safeImageDimensions(options.outWidth,options.outHeight))return null;
+        options.inPreferredConfig=Bitmap.Config.RGB_565;
         options.inSampleSize=sample(options.outWidth,options.outHeight,edge);
         options.inJustDecodeBounds=false;
         return BitmapFactory.decodeFile(file.getAbsolutePath(),options);
+    }
+
+    static boolean safeImageDimensions(int width,int height){
+        // Progressive JPEG decoders may allocate full-resolution coefficient buffers even
+        // when inSampleSize requests a thumbnail. Always bound the source dimensions.
+        return width>0&&height>0&&(long)width*height<=24_000_000L;
     }
 
     private static int sample(int width,int height,int edge){

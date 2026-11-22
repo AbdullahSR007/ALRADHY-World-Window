@@ -33,6 +33,13 @@ public class WorldUpdateTest {
         }
         write(new File(dir,"index.json"),index.toString().getBytes(StandardCharsets.UTF_8));
     }
+    @Test public void oversizedProgressiveImageIsOutsideDecodeBudget(){
+        assertFalse(GalleryStore.safeImageDimensions(18756,8588));
+        assertFalse(GalleryStore.safeImageDimensions(65535,65535));
+        assertFalse(GalleryStore.safeImageDimensions(0,1080));
+        assertTrue(GalleryStore.safeImageDimensions(1920,1080));
+    }
+
     @Test public void legacy100VideosAnd2000PicturesSurviveAddingPlaceAndReload()throws Exception{
         List<Scene> catalog=SceneCatalog.create();assertEquals(100,catalog.size());
         JSONObject legacy=new JSONObject();Map<File,byte[]> originals=new HashMap<>();

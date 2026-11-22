@@ -291,7 +291,7 @@ public final class CinematicView extends View {
     @Override protected void onSizeChanged(int width,int height,int oldWidth,int oldHeight){
         super.onSizeChanged(width,height,oldWidth,oldHeight);
         if(width==0||height==0)return;
-        background=Bitmap.createBitmap(Math.min(width,1920),Math.min(height,1080),Bitmap.Config.RGB_565);
+        background=Bitmap.createBitmap(Math.min(width,960),Math.min(height,540),Bitmap.Config.RGB_565);
         Canvas canvas=new Canvas(background);
         canvas.scale(background.getWidth()/1920f,background.getHeight()/1080f);
         paintBackground(canvas);

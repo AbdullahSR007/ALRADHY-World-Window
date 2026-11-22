@@ -68,8 +68,11 @@ final class PosterLoader {
 
     private Bitmap decode(Scene scene,String localMedia,String localPoster,String url,int width,int height)throws Exception{
         boolean offline=!localMedia.isEmpty();
-        if(offline&&(localMedia.endsWith("-offline-photo.img")||!scene.mime.startsWith("video/")))
-            return decodeFile(new File(localMedia),width,height);
+        boolean still=offline&&(localMedia.endsWith("-offline-photo.img")||!scene.mime.startsWith("video/"));
+        if(still){
+            Bitmap original=decodeFile(new File(localMedia),width,height);
+            if(original!=null)return original;
+        }
         if(!localPoster.isEmpty()&&new File(localPoster).isFile())
             return decodeFile(new File(localPoster),width,height);
         File cached=new File(library.posterDir(),scene.id+"_preview.jpg");
@@ -77,7 +80,14 @@ final class PosterLoader {
             Bitmap preview=decodeFile(cached,width,height);
             if(preview!=null)return preview;
         }
-        if(offline){
+        if(still){
+            GalleryStore gallery=new GalleryStore(library.context(),scene);
+            for(GalleryStore.Photo photo:gallery.saved()){
+                Bitmap preview=decodeFile(gallery.file(photo),width,height);
+                if(preview!=null)return preview;
+            }
+        }
+        if(offline&&!still){
             Bitmap image=ThumbnailUtils.createVideoThumbnail(localMedia,MediaStore.Video.Thumbnails.MINI_KIND);
             return limit(image,width,height);
         }
@@ -121,7 +131,7 @@ final class PosterLoader {
         BitmapFactory.Options options=new BitmapFactory.Options();
         options.inJustDecodeBounds=true;
         BitmapFactory.decodeFile(path,options);
-        if(options.outWidth<=0||options.outHeight<=0)return null;
+        if(!GalleryStore.safeImageDimensions(options.outWidth,options.outHeight))return null;
         float scale=Math.min(1f,Math.min(width/(float)options.outWidth,height/(float)options.outHeight));
         int sample=1;
         while(sample*2*scale<=1)sample*=2;
